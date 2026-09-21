@@ -13,6 +13,9 @@ function collectWorkspaceState() {
     const tabs = [];
     document.querySelectorAll(".tab-btn").forEach((btn) => {
         if (btn.dataset.tabId === TAB_DASHBOARD) return;
+        // Properties tabs are ephemeral read-only views; they are never
+        // restored after a refresh.
+        if (btn.dataset.tabKind === "properties") return;
         const panel = document.getElementById(TAB_CONTENT_PREFIX + btn.dataset.tabId);
         if (!panel) return;
         const params = formConnectionParams(queryForm(panel));

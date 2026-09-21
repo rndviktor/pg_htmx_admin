@@ -1,0 +1,214 @@
+{{ if .Err }}
+<div class="flex-1 flex items-center justify-center p-6 text-sm text-red-400">{{ .Err }}</div>
+{{ else }}
+<div class="flex flex-col h-full bg-gray-900 text-gray-200" data-properties-panel>
+
+  <!-- Panel header -->
+  <div class="flex items-center gap-2 px-3 py-2 bg-gray-800 border-b border-gray-700 shrink-0">
+    <span class="text-lg">{{ .Icon }}</span>
+    <span class="font-semibold text-gray-100">{{ .Qualified }}</span>
+    <span class="text-xs text-gray-500">{{ .KindLabel }} Properties</span>
+  </div>
+
+  <!-- In-panel section tabs -->
+  <div class="flex items-center text-xs bg-gray-800 border-b border-gray-700 shrink-0 overflow-x-auto">
+    <button data-prop-tab="General" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-blue-500 text-blue-400 hover:text-gray-200 font-bold">General</button>
+    <button data-prop-tab="Columns" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Columns</button>
+    {{ if eq .Kind "table" }}
+    <button data-prop-tab="Constraints" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Constraints</button>
+    <button data-prop-tab="Indexes" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Indexes</button>
+    {{ end }}
+    <button data-prop-tab="Privileges" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Privileges</button>
+    {{ if eq .Kind "table" }}
+    <button data-prop-tab="Statistics" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Statistics</button>
+    {{ end }}
+    <button data-prop-tab="Dependencies" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Dependencies</button>
+    <button data-prop-tab="SQL" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">SQL</button>
+  </div>
+
+  <!-- Pane: General -->
+  <div data-prop-pane="General" class="prop-pane flex-1 overflow-auto p-3">
+    <table class="w-full text-sm">
+      <tbody>
+        {{ range .General }}
+        <tr class="border-b border-gray-800">
+          <td class="py-1 pr-4 text-gray-500 align-top whitespace-nowrap">{{ .Label }}</td>
+          <td class="py-1 font-mono text-gray-200">{{ .Value }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pane: Columns -->
+  <div data-prop-pane="Columns" class="prop-pane flex-1 overflow-auto p-3 hidden">
+    {{ if .Columns }}
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-left text-gray-500 border-b border-gray-700">
+          <th class="py-1 pr-3">Name</th>
+          <th class="py-1 pr-3">Type</th>
+          <th class="py-1 pr-3">Length</th>
+          <th class="py-1 pr-3">Nullable</th>
+          <th class="py-1 pr-3">Default</th>
+          <th class="py-1 pr-3">Collation</th>
+          <th class="py-1 pr-3">Comment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Columns }}
+        <tr class="border-b border-gray-800 align-top">
+          <td class="py-1 pr-3 font-mono text-gray-200">{{ .Name }}</td>
+          <td class="py-1 pr-3 font-mono text-gray-300">{{ .DataType }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Length }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Nullable }}</td>
+          <td class="py-1 pr-3 font-mono text-gray-300">{{ .Default }}</td>
+          <td class="py-1 pr-3 font-mono text-gray-400">{{ .Collation }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Comment }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-xs text-gray-500 italic">No columns found.</div>
+    {{ end }}
+  </div>
+
+  <!-- Pane: Constraints (tables only) -->
+  {{ if eq .Kind "table" }}
+  <div data-prop-pane="Constraints" class="prop-pane flex-1 overflow-auto p-3 hidden">
+    {{ if .Constraints }}
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-left text-gray-500 border-b border-gray-700">
+          <th class="py-1 pr-3">Name</th>
+          <th class="py-1 pr-3">Type</th>
+          <th class="py-1 pr-3">Definition</th>
+          <th class="py-1 pr-3">Deferrable</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Constraints }}
+        <tr class="border-b border-gray-800 align-top">
+          <td class="py-1 pr-3 font-mono text-gray-200">{{ .Name }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Type }}</td>
+          <td class="py-1 pr-3 font-mono text-gray-300">{{ .Definition }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Deferrable }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-xs text-gray-500 italic">No constraints found.</div>
+    {{ end }}
+  </div>
+
+  <!-- Pane: Indexes (tables only) -->
+  <div data-prop-pane="Indexes" class="prop-pane flex-1 overflow-auto p-3 hidden">
+    {{ if .Indexes }}
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-left text-gray-500 border-b border-gray-700">
+          <th class="py-1 pr-3">Name</th>
+          <th class="py-1 pr-3">Unique</th>
+          <th class="py-1 pr-3">Tablespace</th>
+          <th class="py-1 pr-3">Definition</th>
+          <th class="py-1 pr-3">Comment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Indexes }}
+        <tr class="border-b border-gray-800 align-top">
+          <td class="py-1 pr-3 font-mono text-gray-200">{{ .Name }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Unique }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Tablespace }}</td>
+          <td class="py-1 pr-3 font-mono text-gray-300">{{ .Definition }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Comment }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-xs text-gray-500 italic">No indexes found.</div>
+    {{ end }}
+  </div>
+  {{ end }}
+
+  <!-- Pane: Privileges -->
+  <div data-prop-pane="Privileges" class="prop-pane flex-1 overflow-auto p-3 hidden">
+    {{ if .Privileges }}
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-left text-gray-500 border-b border-gray-700">
+          <th class="py-1 pr-3">Grantee</th>
+          <th class="py-1 pr-3">Privilege</th>
+          <th class="py-1 pr-3">Grantable</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Privileges }}
+        <tr class="border-b border-gray-800">
+          <td class="py-1 pr-3 font-mono text-gray-200">{{ .Grantee }}</td>
+          <td class="py-1 pr-3 text-gray-300">{{ .Privilege }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Grantable }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-xs text-gray-500 italic">No privileges found.</div>
+    {{ end }}
+  </div>
+
+  <!-- Pane: Statistics (tables only) -->
+  {{ if eq .Kind "table" }}
+  <div data-prop-pane="Statistics" class="prop-pane flex-1 overflow-auto p-3 hidden">
+    {{ if .Stats }}
+    <table class="w-full text-sm">
+      <tbody>
+        {{ range .Stats }}
+        <tr class="border-b border-gray-800">
+          <td class="py-1 pr-4 text-gray-500 align-top whitespace-nowrap">{{ .Label }}</td>
+          <td class="py-1 font-mono text-gray-200">{{ .Value }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-xs text-gray-500 italic">No statistics found.</div>
+    {{ end }}
+  </div>
+  {{ end }}
+
+  <!-- Pane: Dependencies -->
+  <div data-prop-pane="Dependencies" class="prop-pane flex-1 overflow-auto p-3 hidden">
+    {{ if .Dependencies }}
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-left text-gray-500 border-b border-gray-700">
+          <th class="py-1 pr-3">Object</th>
+          <th class="py-1 pr-3">Name</th>
+          <th class="py-1 pr-3">Constraint</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Dependencies }}
+        <tr class="border-b border-gray-800">
+          <td class="py-1 pr-3 text-gray-400">{{ .Kind }}</td>
+          <td class="py-1 pr-3 font-mono text-gray-200">{{ .Name }}</td>
+          <td class="py-1 pr-3 text-gray-400">{{ .Detail }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-xs text-gray-500 italic">No dependencies found (this object is not referenced by other objects).</div>
+    {{ end }}
+  </div>
+
+  <!-- Pane: SQL -->
+  <div data-prop-pane="SQL" class="prop-pane flex-1 overflow-auto p-3 hidden">
+    <pre class="text-xs font-mono text-gray-200 whitespace-pre">{{ if .SQL }}{{ .SQL }}{{ else }}<span class="text-gray-500 italic">SQL preview unavailable.</span>{{ end }}</pre>
+  </div>
+</div>
+{{ end }}

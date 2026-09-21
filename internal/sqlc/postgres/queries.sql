@@ -136,7 +136,8 @@ SELECT
     c.is_nullable,
     c.column_default,
     c.character_maximum_length,
-    COALESCE(coll.collname, '') AS collation
+    COALESCE(coll.collname, '') AS collation,
+    COALESCE(col_description(a.attrelid, a.attnum), '') AS comment
 FROM information_schema.columns c
 LEFT JOIN pg_attribute a ON a.attrelid = ($1 || '.' || $2)::regclass AND a.attname = c.column_name
 LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
@@ -186,8 +187,11 @@ WHERE n.nspname = $1 AND t.relname = $2
 ORDER BY 1;
 
 -- name: ListTableIndexes :many
-SELECT indexname FROM pg_indexes
-WHERE schemaname = $1 AND tablename = $2
+SELECT cls.relname FROM pg_index idx
+JOIN pg_class cls ON cls.oid = idx.indexrelid
+JOIN pg_class tbl ON tbl.oid = idx.indrelid
+JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
+WHERE ns.nspname = $1 AND tbl.relname = $2
 ORDER BY 1;
 
 -- name: ListPolicies :many
@@ -213,10 +217,123 @@ UNION ALL SELECT 'constraints', count(*) FROM pg_constraint con
   JOIN pg_class cls ON con.conrelid = cls.oid
   JOIN pg_namespace ns ON cls.relnamespace = ns.oid
   WHERE ns.nspname = $1 AND cls.relname = $2
-UNION ALL SELECT 'indexes', count(*) FROM pg_indexes idx WHERE idx.schemaname = $1 AND idx.tablename = $2
+UNION ALL SELECT 'indexes', count(*) FROM pg_index idx
+  JOIN pg_class cls ON cls.oid = idx.indexrelid
+  JOIN pg_class tbl ON tbl.oid = idx.indrelid
+  JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
+  WHERE ns.nspname = $1 AND tbl.relname = $2
 UNION ALL SELECT 'rls-policies', count(*) FROM pg_policies pol WHERE pol.schemaname = $1 AND pol.tablename = $2
 UNION ALL SELECT 'rules', count(*) FROM pg_rules rl WHERE rl.schemaname = $1 AND rl.tablename = $2
 UNION ALL SELECT 'triggers', count(*) FROM pg_trigger trg
   JOIN pg_class cls2 ON trg.tgrelid = cls2.oid
   JOIN pg_namespace ns2 ON cls2.relnamespace = ns2.oid
   WHERE ns2.nspname = $1 AND cls2.relname = $2 AND NOT trg.tgisinternal;
+
+-- Object-properties queries (run against a specific database)
+
+-- name: GetTableGeneral :one
+SELECT
+    t.tableowner,
+    COALESCE(t.tablespace, 'pg_default') AS tablespace,
+    COALESCE(obj_description(c.oid), '') AS comment,
+    c.reltuples::bigint AS row_estimate,
+    pg_total_relation_size(c.oid) AS table_size,
+    t.hasindexes AS has_indexes,
+    c.relkind::text = 'p' AS partitioned,
+    c.relrowsecurity AS row_security
+FROM pg_tables t
+JOIN pg_class c ON c.relname = t.tablename
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
+WHERE t.schemaname = $1 AND t.tablename = $2
+LIMIT 1;
+
+-- name: GetViewGeneral :one
+SELECT
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_relation_size(c.oid) AS relation_size,
+    COALESCE(obj_description(c.oid), '') AS comment,
+    (SELECT count(*) FROM pg_attribute a
+     WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped) AS column_count
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v'
+LIMIT 1;
+
+-- name: GetTableConstraints :many
+SELECT
+    c.conname,
+    c.contype::text AS constraint_type,
+    pg_get_constraintdef(c.oid, true) AS definition,
+    c.condeferrable,
+    c.condeferred
+FROM pg_constraint c
+JOIN pg_class t ON c.conrelid = t.oid
+JOIN pg_namespace n ON t.relnamespace = n.oid
+WHERE n.nspname = $1 AND t.relname = $2
+ORDER BY c.conname;
+
+-- name: GetTableIndexesDetailed :many
+SELECT
+    c.relname AS index_name,
+    pg_get_indexdef(i.indexrelid, 0, true) AS definition,
+    i.indisunique AS is_unique,
+    COALESCE(t.spcname, 'pg_default') AS tablespace,
+    COALESCE(obj_description(i.indexrelid), '') AS comment
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+LEFT JOIN pg_tablespace t ON t.oid = c.reltablespace
+WHERE n.nspname = $1 AND tc.relname = $2
+ORDER BY c.relname;
+
+-- name: GetTableStatistics :one
+SELECT
+    s.seq_scan, s.seq_tup_read, s.idx_scan, s.idx_tup_fetch,
+    s.n_tup_ins, s.n_tup_upd, s.n_tup_del,
+    s.n_live_tup, s.n_dead_tup,
+    s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze
+FROM pg_stat_user_tables s
+WHERE s.schemaname = $1 AND s.relname = $2
+LIMIT 1;
+
+-- name: GetObjectPrivileges :many
+SELECT
+    grantee,
+    privilege_type,
+    is_grantable
+FROM information_schema.table_privileges
+WHERE table_schema = $1 AND table_name = $2
+ORDER BY grantee, privilege_type;
+
+-- name: GetObjectDependencies :many
+SELECT 'view' AS kind,
+    dep_ns.nspname || '.' || dep_rel.relname AS name,
+    '' AS detail
+FROM pg_depend d
+JOIN pg_rewrite r ON r.oid = d.objid
+JOIN pg_class dep_rel ON dep_rel.oid = r.ev_class
+JOIN pg_namespace dep_ns ON dep_ns.oid = dep_rel.relnamespace
+JOIN pg_class src ON src.oid = d.refobjid
+JOIN pg_namespace src_ns ON src_ns.oid = src.relnamespace
+WHERE src_ns.nspname = $1 AND src.relname = $2 AND dep_rel.relkind = 'v'
+UNION ALL
+SELECT 'foreign key',
+    ref_ns.nspname || '.' || ref_rel.relname,
+    con.conname
+FROM pg_constraint con
+JOIN pg_class key_rel ON key_rel.oid = con.confrelid
+JOIN pg_namespace key_ns ON key_ns.oid = key_rel.relnamespace
+JOIN pg_class ref_rel ON ref_rel.oid = con.conrelid
+JOIN pg_namespace ref_ns ON ref_ns.oid = ref_rel.relnamespace
+WHERE key_ns.nspname = $1 AND key_rel.relname = $2 AND con.contype = 'f'
+UNION ALL
+SELECT 'index',
+    n.nspname || '.' || c.relname,
+    ''
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+WHERE n.nspname = $1 AND tc.relname = $2
+ORDER BY 1, 2;

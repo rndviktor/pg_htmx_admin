@@ -96,9 +96,15 @@ function initContextMenu() {
             }
         }
 
-        // The "Scripts" submenu generates DDL/DML scripts. Tables get
-        // the full set, views get CREATE, INSERT and SELECT.
+        // Tables and views offer read-only Properties before the
+        // "Scripts" submenu.
         if (currentMenuKind === "table" || currentMenuKind === "view") {
+            menu.appendChild(divider());
+
+            const propsItem = menuItem("Properties", false);
+            propsItem.addEventListener("click", () => openPropertiesTab(currentTableURL, currentMenuKind));
+            menu.appendChild(propsItem);
+
             menu.appendChild(divider());
 
             const row = document.createElement("div");
@@ -131,13 +137,22 @@ function initContextMenu() {
     }
 
     document.addEventListener("contextmenu", (e) => {
-        const el = e.target.closest("[data-tree-menu]");
-        if (!el) {
+        const item = e.target.closest("li[data-tree-menu]");
+        if (!item) {
+            hideMenu();
+            return;
+        }
+        // The menu only belongs to the node itself. Child nodes (e.g. the
+        // Columns folder or a column leaf under a table) live inside the
+        // node's lazy-load container, so a right-click there must not
+        // surface the parent table's menu.
+        const childrenShell = item.querySelector(":scope > div");
+        if (childrenShell && childrenShell.contains(e.target)) {
             hideMenu();
             return;
         }
         e.preventDefault();
-        openMenu(e.clientX, e.clientY, el);
+        openMenu(e.clientX, e.clientY, item);
     });
     document.addEventListener("click", hideMenu);
     document.addEventListener("keydown", (e) => {

@@ -129,7 +129,11 @@ UNION ALL SELECT 'constraints', count(*) FROM pg_constraint con
   JOIN pg_class cls ON con.conrelid = cls.oid
   JOIN pg_namespace ns ON cls.relnamespace = ns.oid
   WHERE ns.nspname = $1 AND cls.relname = $2
-UNION ALL SELECT 'indexes', count(*) FROM pg_indexes idx WHERE idx.schemaname = $1 AND idx.tablename = $2
+UNION ALL SELECT 'indexes', count(*) FROM pg_index idx
+  JOIN pg_class cls ON cls.oid = idx.indexrelid
+  JOIN pg_class tbl ON tbl.oid = idx.indrelid
+  JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
+  WHERE ns.nspname = $1 AND tbl.relname = $2
 UNION ALL SELECT 'rls-policies', count(*) FROM pg_policies pol WHERE pol.schemaname = $1 AND pol.tablename = $2
 UNION ALL SELECT 'rules', count(*) FROM pg_rules rl WHERE rl.schemaname = $1 AND rl.tablename = $2
 UNION ALL SELECT 'triggers', count(*) FROM pg_trigger trg
@@ -158,6 +162,111 @@ func (q *Queries) CountTableObjects(ctx context.Context, arg CountTableObjectsPa
 	for rows.Next() {
 		var i CountTableObjectsRow
 		if err := rows.Scan(&i.Category, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getObjectDependencies = `-- name: GetObjectDependencies :many
+SELECT 'view' AS kind,
+    dep_ns.nspname || '.' || dep_rel.relname AS name,
+    '' AS detail
+FROM pg_depend d
+JOIN pg_rewrite r ON r.oid = d.objid
+JOIN pg_class dep_rel ON dep_rel.oid = r.ev_class
+JOIN pg_namespace dep_ns ON dep_ns.oid = dep_rel.relnamespace
+JOIN pg_class src ON src.oid = d.refobjid
+JOIN pg_namespace src_ns ON src_ns.oid = src.relnamespace
+WHERE src_ns.nspname = $1 AND src.relname = $2 AND dep_rel.relkind = 'v'
+UNION ALL
+SELECT 'foreign key',
+    ref_ns.nspname || '.' || ref_rel.relname,
+    con.conname
+FROM pg_constraint con
+JOIN pg_class key_rel ON key_rel.oid = con.confrelid
+JOIN pg_namespace key_ns ON key_ns.oid = key_rel.relnamespace
+JOIN pg_class ref_rel ON ref_rel.oid = con.conrelid
+JOIN pg_namespace ref_ns ON ref_ns.oid = ref_rel.relnamespace
+WHERE key_ns.nspname = $1 AND key_rel.relname = $2 AND con.contype = 'f'
+UNION ALL
+SELECT 'index',
+    n.nspname || '.' || c.relname,
+    ''
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+WHERE n.nspname = $1 AND tc.relname = $2
+ORDER BY 1, 2
+`
+
+type GetObjectDependenciesParams struct {
+	Nspname string
+	Relname string
+}
+
+type GetObjectDependenciesRow struct {
+	Kind   string
+	Name   interface{}
+	Detail string
+}
+
+func (q *Queries) GetObjectDependencies(ctx context.Context, arg GetObjectDependenciesParams) ([]GetObjectDependenciesRow, error) {
+	rows, err := q.db.Query(ctx, getObjectDependencies, arg.Nspname, arg.Relname)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetObjectDependenciesRow
+	for rows.Next() {
+		var i GetObjectDependenciesRow
+		if err := rows.Scan(&i.Kind, &i.Name, &i.Detail); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getObjectPrivileges = `-- name: GetObjectPrivileges :many
+SELECT
+    grantee,
+    privilege_type,
+    is_grantable
+FROM information_schema.table_privileges
+WHERE table_schema = $1 AND table_name = $2
+ORDER BY grantee, privilege_type
+`
+
+type GetObjectPrivilegesParams struct {
+	TableSchema interface{}
+	TableName   interface{}
+}
+
+type GetObjectPrivilegesRow struct {
+	Grantee       interface{}
+	PrivilegeType interface{}
+	IsGrantable   interface{}
+}
+
+func (q *Queries) GetObjectPrivileges(ctx context.Context, arg GetObjectPrivilegesParams) ([]GetObjectPrivilegesRow, error) {
+	rows, err := q.db.Query(ctx, getObjectPrivileges, arg.TableSchema, arg.TableName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetObjectPrivilegesRow
+	for rows.Next() {
+		var i GetObjectPrivilegesRow
+		if err := rows.Scan(&i.Grantee, &i.PrivilegeType, &i.IsGrantable); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -249,7 +358,8 @@ SELECT
     c.is_nullable,
     c.column_default,
     c.character_maximum_length,
-    COALESCE(coll.collname, '') AS collation
+    COALESCE(coll.collname, '') AS collation,
+    COALESCE(col_description(a.attrelid, a.attnum), '') AS comment
 FROM information_schema.columns c
 LEFT JOIN pg_attribute a ON a.attrelid = ($1 || '.' || $2)::regclass AND a.attname = c.column_name
 LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
@@ -269,6 +379,7 @@ type GetTableColumnsDetailedRow struct {
 	ColumnDefault          interface{}
 	CharacterMaximumLength interface{}
 	Collation              string
+	Comment                interface{}
 }
 
 func (q *Queries) GetTableColumnsDetailed(ctx context.Context, arg GetTableColumnsDetailedParams) ([]GetTableColumnsDetailedRow, error) {
@@ -287,6 +398,166 @@ func (q *Queries) GetTableColumnsDetailed(ctx context.Context, arg GetTableColum
 			&i.ColumnDefault,
 			&i.CharacterMaximumLength,
 			&i.Collation,
+			&i.Comment,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTableConstraints = `-- name: GetTableConstraints :many
+SELECT
+    c.conname,
+    c.contype::text AS constraint_type,
+    pg_get_constraintdef(c.oid, true) AS definition,
+    c.condeferrable,
+    c.condeferred
+FROM pg_constraint c
+JOIN pg_class t ON c.conrelid = t.oid
+JOIN pg_namespace n ON t.relnamespace = n.oid
+WHERE n.nspname = $1 AND t.relname = $2
+ORDER BY c.conname
+`
+
+type GetTableConstraintsParams struct {
+	Nspname string
+	Relname string
+}
+
+type GetTableConstraintsRow struct {
+	Conname        string
+	ConstraintType string
+	Definition     string
+	Condeferrable  bool
+	Condeferred    bool
+}
+
+func (q *Queries) GetTableConstraints(ctx context.Context, arg GetTableConstraintsParams) ([]GetTableConstraintsRow, error) {
+	rows, err := q.db.Query(ctx, getTableConstraints, arg.Nspname, arg.Relname)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTableConstraintsRow
+	for rows.Next() {
+		var i GetTableConstraintsRow
+		if err := rows.Scan(
+			&i.Conname,
+			&i.ConstraintType,
+			&i.Definition,
+			&i.Condeferrable,
+			&i.Condeferred,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTableGeneral = `-- name: GetTableGeneral :one
+
+SELECT
+    t.tableowner,
+    COALESCE(t.tablespace, 'pg_default') AS tablespace,
+    COALESCE(obj_description(c.oid), '') AS comment,
+    c.reltuples::bigint AS row_estimate,
+    pg_total_relation_size(c.oid) AS table_size,
+    t.hasindexes AS has_indexes,
+    c.relkind::text = 'p' AS partitioned,
+    c.relrowsecurity AS row_security
+FROM pg_tables t
+JOIN pg_class c ON c.relname = t.tablename
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
+WHERE t.schemaname = $1 AND t.tablename = $2
+LIMIT 1
+`
+
+type GetTableGeneralParams struct {
+	Schemaname string
+	Tablename  string
+}
+
+type GetTableGeneralRow struct {
+	Tableowner  string
+	Tablespace  string
+	Comment     interface{}
+	RowEstimate int64
+	TableSize   int64
+	HasIndexes  bool
+	Partitioned bool
+	RowSecurity bool
+}
+
+// Object-properties queries (run against a specific database)
+func (q *Queries) GetTableGeneral(ctx context.Context, arg GetTableGeneralParams) (GetTableGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getTableGeneral, arg.Schemaname, arg.Tablename)
+	var i GetTableGeneralRow
+	err := row.Scan(
+		&i.Tableowner,
+		&i.Tablespace,
+		&i.Comment,
+		&i.RowEstimate,
+		&i.TableSize,
+		&i.HasIndexes,
+		&i.Partitioned,
+		&i.RowSecurity,
+	)
+	return i, err
+}
+
+const getTableIndexesDetailed = `-- name: GetTableIndexesDetailed :many
+SELECT
+    c.relname AS index_name,
+    pg_get_indexdef(i.indexrelid, 0, true) AS definition,
+    i.indisunique AS is_unique,
+    COALESCE(t.spcname, 'pg_default') AS tablespace,
+    COALESCE(obj_description(i.indexrelid), '') AS comment
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+LEFT JOIN pg_tablespace t ON t.oid = c.reltablespace
+WHERE n.nspname = $1 AND tc.relname = $2
+ORDER BY c.relname
+`
+
+type GetTableIndexesDetailedParams struct {
+	Nspname string
+	Relname string
+}
+
+type GetTableIndexesDetailedRow struct {
+	IndexName  string
+	Definition string
+	IsUnique   bool
+	Tablespace string
+	Comment    interface{}
+}
+
+func (q *Queries) GetTableIndexesDetailed(ctx context.Context, arg GetTableIndexesDetailedParams) ([]GetTableIndexesDetailedRow, error) {
+	rows, err := q.db.Query(ctx, getTableIndexesDetailed, arg.Nspname, arg.Relname)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTableIndexesDetailedRow
+	for rows.Next() {
+		var i GetTableIndexesDetailedRow
+		if err := rows.Scan(
+			&i.IndexName,
+			&i.Definition,
+			&i.IsUnique,
+			&i.Tablespace,
+			&i.Comment,
 		); err != nil {
 			return nil, err
 		}
@@ -322,6 +593,59 @@ func (q *Queries) GetTableInfo(ctx context.Context, arg GetTableInfoParams) (Get
 	return i, err
 }
 
+const getTableStatistics = `-- name: GetTableStatistics :one
+SELECT
+    s.seq_scan, s.seq_tup_read, s.idx_scan, s.idx_tup_fetch,
+    s.n_tup_ins, s.n_tup_upd, s.n_tup_del,
+    s.n_live_tup, s.n_dead_tup,
+    s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze
+FROM pg_stat_user_tables s
+WHERE s.schemaname = $1 AND s.relname = $2
+LIMIT 1
+`
+
+type GetTableStatisticsParams struct {
+	Schemaname string
+	Relname    string
+}
+
+type GetTableStatisticsRow struct {
+	SeqScan         int64
+	SeqTupRead      int64
+	IdxScan         int64
+	IdxTupFetch     int64
+	NTupIns         int64
+	NTupUpd         int64
+	NTupDel         int64
+	NLiveTup        int64
+	NDeadTup        int64
+	LastVacuum      pgtype.Timestamptz
+	LastAutovacuum  pgtype.Timestamptz
+	LastAnalyze     pgtype.Timestamptz
+	LastAutoanalyze pgtype.Timestamptz
+}
+
+func (q *Queries) GetTableStatistics(ctx context.Context, arg GetTableStatisticsParams) (GetTableStatisticsRow, error) {
+	row := q.db.QueryRow(ctx, getTableStatistics, arg.Schemaname, arg.Relname)
+	var i GetTableStatisticsRow
+	err := row.Scan(
+		&i.SeqScan,
+		&i.SeqTupRead,
+		&i.IdxScan,
+		&i.IdxTupFetch,
+		&i.NTupIns,
+		&i.NTupUpd,
+		&i.NTupDel,
+		&i.NLiveTup,
+		&i.NDeadTup,
+		&i.LastVacuum,
+		&i.LastAutovacuum,
+		&i.LastAnalyze,
+		&i.LastAutoanalyze,
+	)
+	return i, err
+}
+
 const getViewDefinition = `-- name: GetViewDefinition :one
 SELECT pg_get_viewdef(c.oid, true)::text AS definition
 FROM pg_class c
@@ -340,6 +664,43 @@ func (q *Queries) GetViewDefinition(ctx context.Context, arg GetViewDefinitionPa
 	var definition string
 	err := row.Scan(&definition)
 	return definition, err
+}
+
+const getViewGeneral = `-- name: GetViewGeneral :one
+SELECT
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_relation_size(c.oid) AS relation_size,
+    COALESCE(obj_description(c.oid), '') AS comment,
+    (SELECT count(*) FROM pg_attribute a
+     WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped) AS column_count
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v'
+LIMIT 1
+`
+
+type GetViewGeneralParams struct {
+	Nspname string
+	Relname string
+}
+
+type GetViewGeneralRow struct {
+	Owner        string
+	RelationSize int64
+	Comment      interface{}
+	ColumnCount  int64
+}
+
+func (q *Queries) GetViewGeneral(ctx context.Context, arg GetViewGeneralParams) (GetViewGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getViewGeneral, arg.Nspname, arg.Relname)
+	var i GetViewGeneralRow
+	err := row.Scan(
+		&i.Owner,
+		&i.RelationSize,
+		&i.Comment,
+		&i.ColumnCount,
+	)
+	return i, err
 }
 
 const listCasts = `-- name: ListCasts :many
@@ -853,29 +1214,32 @@ func (q *Queries) ListTableColumns(ctx context.Context, arg ListTableColumnsPara
 }
 
 const listTableIndexes = `-- name: ListTableIndexes :many
-SELECT indexname FROM pg_indexes
-WHERE schemaname = $1 AND tablename = $2
+SELECT cls.relname FROM pg_index idx
+JOIN pg_class cls ON cls.oid = idx.indexrelid
+JOIN pg_class tbl ON tbl.oid = idx.indrelid
+JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
+WHERE ns.nspname = $1 AND tbl.relname = $2
 ORDER BY 1
 `
 
 type ListTableIndexesParams struct {
-	Schemaname string
-	Tablename  string
+	Nspname string
+	Relname string
 }
 
 func (q *Queries) ListTableIndexes(ctx context.Context, arg ListTableIndexesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listTableIndexes, arg.Schemaname, arg.Tablename)
+	rows, err := q.db.Query(ctx, listTableIndexes, arg.Nspname, arg.Relname)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var items []string
 	for rows.Next() {
-		var indexname string
-		if err := rows.Scan(&indexname); err != nil {
+		var relname string
+		if err := rows.Scan(&relname); err != nil {
 			return nil, err
 		}
-		items = append(items, indexname)
+		items = append(items, relname)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

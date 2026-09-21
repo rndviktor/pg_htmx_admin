@@ -55,54 +55,10 @@ func (s *Server) handleCreateScript(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var b strings.Builder
-	qualified := qualIdent(schemaName, tableName)
-
-	b.WriteString("-- Table: ")
-	b.WriteString(qualified)
-	b.WriteString("\n\n-- DROP TABLE IF EXISTS ")
-	b.WriteString(qualified)
-	b.WriteString(";\n\nCREATE TABLE IF NOT EXISTS ")
-	b.WriteString(qualified)
-	b.WriteString("\n(\n")
-
-	for i, col := range cols {
-		if i > 0 {
-			b.WriteString(",\n")
-		}
-		b.WriteString("    ")
-		b.WriteString(columnLine(col))
-	}
-
-	if len(pkRows) > 0 {
-		if len(cols) > 0 {
-			b.WriteString(",\n")
-		}
-		names := make([]string, 0, len(pkRows))
-		for _, r := range pkRows {
-			names = append(names, quoteIfNeeded(r.Attname))
-		}
-		b.WriteString("    CONSTRAINT ")
-		b.WriteString(quoteIfNeeded(pkRows[0].Conname))
-		b.WriteString(" PRIMARY KEY (")
-		b.WriteString(strings.Join(names, ", "))
-		b.WriteString(")")
-	}
-
-	b.WriteString("\n)\n\nTABLESPACE ")
-	b.WriteString(quoteIfNeeded(tablespace))
-	b.WriteString(";\n\n")
-
-	if owner != "" {
-		b.WriteString("ALTER TABLE IF EXISTS ")
-		b.WriteString(qualified)
-		b.WriteString("\n    OWNER to ")
-		b.WriteString(quoteIfNeeded(owner))
-		b.WriteString(";")
-	}
+	query := buildCreateTableScript(schemaName, tableName, owner, tablespace, cols, pkRows)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"query": b.String()})
+	json.NewEncoder(w).Encode(map[string]string{"query": query})
 }
 
 // handleDeleteScript generates a skeleton DELETE statement for a table and
@@ -171,21 +127,10 @@ func (s *Server) handleCreateViewScript(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var b strings.Builder
-	qualified := qualIdent(schemaName, viewName)
-
-	b.WriteString("-- View: ")
-	b.WriteString(qualified)
-	b.WriteString("\n\n-- DROP VIEW IF EXISTS ")
-	b.WriteString(qualified)
-	b.WriteString(";\n\nCREATE OR REPLACE VIEW ")
-	b.WriteString(qualified)
-	b.WriteString(" AS\n")
-	b.WriteString(strings.TrimRight(definition, " \t\r\n"))
-	b.WriteString(";\n")
+	query := buildCreateViewScript(schemaName, viewName, definition)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"query": b.String()})
+	json.NewEncoder(w).Encode(map[string]string{"query": query})
 }
 
 // handleInsertViewScript generates a skeleton INSERT statement for a view and
@@ -334,4 +279,75 @@ func optString(v any) string {
 		return ""
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// buildCreateTableScript renders a pgAdmin-style CREATE TABLE script for a
+// table. It is shared by handleCreateScript and the table properties SQL tab.
+func buildCreateTableScript(schemaName, tableName, owner, tablespace string, cols []pgdb.GetTableColumnsDetailedRow, pkRows []pgdb.GetPrimaryKeyColumnsRow) string {
+	var b strings.Builder
+	qualified := qualIdent(schemaName, tableName)
+
+	b.WriteString("-- Table: ")
+	b.WriteString(qualified)
+	b.WriteString("\n\n-- DROP TABLE IF EXISTS ")
+	b.WriteString(qualified)
+	b.WriteString(";\n\nCREATE TABLE IF NOT EXISTS ")
+	b.WriteString(qualified)
+	b.WriteString("\n(\n")
+
+	for i, col := range cols {
+		if i > 0 {
+			b.WriteString(",\n")
+		}
+		b.WriteString("    ")
+		b.WriteString(columnLine(col))
+	}
+
+	if len(pkRows) > 0 {
+		if len(cols) > 0 {
+			b.WriteString(",\n")
+		}
+		names := make([]string, 0, len(pkRows))
+		for _, r := range pkRows {
+			names = append(names, quoteIfNeeded(r.Attname))
+		}
+		b.WriteString("    CONSTRAINT ")
+		b.WriteString(quoteIfNeeded(pkRows[0].Conname))
+		b.WriteString(" PRIMARY KEY (")
+		b.WriteString(strings.Join(names, ", "))
+		b.WriteString(")")
+	}
+
+	b.WriteString("\n)\n\nTABLESPACE ")
+	b.WriteString(quoteIfNeeded(tablespace))
+	b.WriteString(";\n\n")
+
+	if owner != "" {
+		b.WriteString("ALTER TABLE IF EXISTS ")
+		b.WriteString(qualified)
+		b.WriteString("\n    OWNER to ")
+		b.WriteString(quoteIfNeeded(owner))
+		b.WriteString(";")
+	}
+
+	return b.String()
+}
+
+// buildCreateViewScript renders a pgAdmin-style CREATE OR REPLACE VIEW script
+// for a view, shared by handleCreateViewScript and the view properties SQL tab.
+func buildCreateViewScript(schemaName, viewName, definition string) string {
+	var b strings.Builder
+	qualified := qualIdent(schemaName, viewName)
+
+	b.WriteString("-- View: ")
+	b.WriteString(qualified)
+	b.WriteString("\n\n-- DROP VIEW IF EXISTS ")
+	b.WriteString(qualified)
+	b.WriteString(";\n\nCREATE OR REPLACE VIEW ")
+	b.WriteString(qualified)
+	b.WriteString(" AS\n")
+	b.WriteString(strings.TrimRight(definition, " \t\r\n"))
+	b.WriteString(";\n")
+
+	return b.String()
 }

@@ -101,6 +101,7 @@ func (s *Server) Routes() http.Handler {
 
 						r.Route("/tables/{tableName}", func(r chi.Router) {
 							r.Get("/children", s.handleTableChildren)
+							r.Get("/properties", s.handleTableProperties)
 							r.Get("/{category}", s.handleTableCategory)
 							r.Get("/columns-script", s.handleTableColumns)
 							r.Get("/create-script", s.handleCreateScript)
@@ -110,6 +111,7 @@ func (s *Server) Routes() http.Handler {
 
 						r.Route("/views/{viewName}", func(r chi.Router) {
 							r.Get("/children", s.handleViewChildren)
+							r.Get("/properties", s.handleViewProperties)
 							r.Get("/{category}", s.handleViewCategory)
 							r.Get("/columns-script", s.handleSelectViewScript)
 							r.Get("/create-script", s.handleCreateViewScript)

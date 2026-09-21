@@ -14,6 +14,7 @@ type PgAttribute struct {
 	Attnum       int32
 	Atttypid     int32
 	Attcollation int32
+	Attisdropped bool
 }
 
 type PgCast struct {
@@ -22,9 +23,16 @@ type PgCast struct {
 }
 
 type PgClass struct {
-	Oid          int32
-	Relname      string
-	Relnamespace int32
+	Oid            int32
+	Relname        string
+	Relnamespace   int32
+	Relkind        string
+	Relowner       int32
+	Reltablespace  int32
+	Reltuples      float64
+	Relhasindex    bool
+	Relrowsecurity bool
+	Relacl         []interface{}
 }
 
 type PgCollation struct {
@@ -33,10 +41,14 @@ type PgCollation struct {
 }
 
 type PgConstraint struct {
-	Conname  string
-	Contype  string
-	Conrelid int32
-	Conkey   []int32
+	Oid           int32
+	Conname       string
+	Contype       string
+	Conrelid      int32
+	Confrelid     int32
+	Conkey        []int32
+	Condeferrable bool
+	Condeferred   bool
 }
 
 type PgDatabase struct {
@@ -44,6 +56,15 @@ type PgDatabase struct {
 	Datname       string
 	Datallowconn  bool
 	Datistemplate bool
+}
+
+type PgDepend struct {
+	Classid     int32
+	Objid       int32
+	Refclassid  int32
+	Refobjid    int32
+	Refobjsubid int32
+	Deptype     string
 }
 
 type PgEventTrigger struct {
@@ -59,9 +80,10 @@ type PgForeignDataWrapper struct {
 }
 
 type PgIndex struct {
-	Indexname  string
-	Schemaname string
-	Tablename  string
+	Indexrelid   int32
+	Indrelid     int32
+	Indisunique  bool
+	Indisprimary bool
 }
 
 type PgLanguage struct {
@@ -96,6 +118,11 @@ type PgPublication struct {
 	Pubname string
 }
 
+type PgRewrite struct {
+	Oid     int32
+	EvClass int32
+}
+
 type PgRole struct {
 	Rolname string
 }
@@ -111,6 +138,24 @@ type PgSequence struct {
 	Schemaname   string
 }
 
+type PgStatUserTable struct {
+	Schemaname      string
+	Relname         string
+	SeqScan         int64
+	SeqTupRead      int64
+	IdxScan         int64
+	IdxTupFetch     int64
+	NTupIns         int64
+	NTupUpd         int64
+	NTupDel         int64
+	NLiveTup        int64
+	NDeadTup        int64
+	LastVacuum      pgtype.Timestamptz
+	LastAutovacuum  pgtype.Timestamptz
+	LastAnalyze     pgtype.Timestamptz
+	LastAutoanalyze pgtype.Timestamptz
+}
+
 type PgSubscription struct {
 	Subname string
 	Subdbid int32
@@ -121,9 +166,11 @@ type PgTable struct {
 	Schemaname string
 	Tableowner string
 	Tablespace pgtype.Text
+	Hasindexes bool
 }
 
 type PgTablespace struct {
+	Oid     int32
 	Spcname string
 }
 

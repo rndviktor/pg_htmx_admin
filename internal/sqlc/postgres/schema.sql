@@ -14,6 +14,7 @@ CREATE TABLE pg_roles (
 );
 
 CREATE TABLE pg_tablespace (
+    oid SERIAL PRIMARY KEY,
     spcname TEXT NOT NULL
 );
 
@@ -57,7 +58,8 @@ CREATE TABLE pg_tables (
     tablename TEXT NOT NULL,
     schemaname TEXT NOT NULL,
     tableowner TEXT NOT NULL,
-    tablespace TEXT
+    tablespace TEXT,
+    hasindexes BOOLEAN NOT NULL
 );
 
 CREATE TABLE pg_views (
@@ -91,14 +93,25 @@ CREATE TABLE pg_type (
 CREATE TABLE pg_class (
     oid SERIAL PRIMARY KEY,
     relname TEXT NOT NULL,
-    relnamespace INTEGER NOT NULL
+    relnamespace INTEGER NOT NULL,
+    relkind CHAR NOT NULL,
+    relowner INTEGER NOT NULL,
+    reltablespace INTEGER NOT NULL,
+    reltuples DOUBLE PRECISION NOT NULL,
+    relhasindex BOOLEAN NOT NULL,
+    relrowsecurity BOOLEAN NOT NULL,
+    relacl aclitem[]
 );
 
 CREATE TABLE pg_constraint (
+    oid SERIAL PRIMARY KEY,
     conname TEXT NOT NULL,
     contype CHAR NOT NULL,
     conrelid INTEGER NOT NULL,
-    conkey INTEGER[]
+    confrelid INTEGER NOT NULL,
+    conkey INTEGER[],
+    condeferrable BOOLEAN NOT NULL,
+    condeferred BOOLEAN NOT NULL
 );
 
 CREATE TABLE pg_attribute (
@@ -106,7 +119,47 @@ CREATE TABLE pg_attribute (
     attname TEXT NOT NULL,
     attnum INTEGER NOT NULL,
     atttypid INTEGER NOT NULL,
-    attcollation INTEGER NOT NULL
+    attcollation INTEGER NOT NULL,
+    attisdropped BOOLEAN NOT NULL
+);
+
+CREATE TABLE pg_index (
+    indexrelid INTEGER NOT NULL,
+    indrelid INTEGER NOT NULL,
+    indisunique BOOLEAN NOT NULL,
+    indisprimary BOOLEAN NOT NULL
+);
+
+CREATE TABLE pg_depend (
+    classid INTEGER NOT NULL,
+    objid INTEGER NOT NULL,
+    refclassid INTEGER NOT NULL,
+    refobjid INTEGER NOT NULL,
+    refobjsubid INTEGER NOT NULL,
+    deptype CHAR NOT NULL
+);
+
+CREATE TABLE pg_rewrite (
+    oid INTEGER NOT NULL,
+    ev_class INTEGER NOT NULL
+);
+
+CREATE TABLE pg_stat_user_tables (
+    schemaname TEXT NOT NULL,
+    relname TEXT NOT NULL,
+    seq_scan BIGINT NOT NULL,
+    seq_tup_read BIGINT NOT NULL,
+    idx_scan BIGINT NOT NULL,
+    idx_tup_fetch BIGINT NOT NULL,
+    n_tup_ins BIGINT NOT NULL,
+    n_tup_upd BIGINT NOT NULL,
+    n_tup_del BIGINT NOT NULL,
+    n_live_tup BIGINT NOT NULL,
+    n_dead_tup BIGINT NOT NULL,
+    last_vacuum TIMESTAMPTZ,
+    last_autovacuum TIMESTAMPTZ,
+    last_analyze TIMESTAMPTZ,
+    last_autoanalyze TIMESTAMPTZ
 );
 
 CREATE TABLE pg_collation (
@@ -118,12 +171,6 @@ CREATE TABLE pg_trigger (
     tgname TEXT NOT NULL,
     tgrelid INTEGER NOT NULL,
     tgisinternal BOOLEAN NOT NULL
-);
-
-CREATE TABLE pg_indexes (
-    indexname TEXT NOT NULL,
-    schemaname TEXT NOT NULL,
-    tablename TEXT NOT NULL
 );
 
 CREATE TABLE pg_policies (

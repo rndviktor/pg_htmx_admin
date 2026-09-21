@@ -235,7 +235,7 @@ var tableCategories = []category{
 		}},
 	{Slug: "indexes", Label: "Indexes", Icon: "📇", Empty: "No indexes found.", NumArgs: 2,
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
-			return q(pool).ListTableIndexes(ctx, pgdb.ListTableIndexesParams{Schemaname: args[0], Tablename: args[1]})
+			return q(pool).ListTableIndexes(ctx, pgdb.ListTableIndexesParams{Nspname: args[0], Relname: args[1]})
 		}},
 	{Slug: "rls-policies", Label: "RLS Policies", Icon: "🛡️", Empty: "No RLS policies found.", NumArgs: 2,
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
