@@ -13,6 +13,18 @@ ORDER BY rolname;
 SELECT spcname FROM pg_tablespace
 ORDER BY spcname;
 
+-- name: ListEncodings :many
+SELECT name FROM pg_character_set
+ORDER BY name;
+
+-- name: ListDatabaseTemplates :many
+SELECT datname FROM pg_database
+WHERE datistemplate
+ORDER BY datname;
+
+-- name: GetCurrentUser :one
+SELECT current_user;
+
 -- name: CountServerObjects :many
 SELECT 'databases' AS category, count(*) AS n FROM pg_database d WHERE d.datallowconn AND NOT d.datistemplate
 UNION ALL SELECT 'roles', count(*) FROM pg_roles

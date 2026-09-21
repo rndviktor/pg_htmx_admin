@@ -185,4 +185,12 @@ CREATE TABLE pg_rules (
     tablename TEXT NOT NULL
 );
 
+-- Maps PostgreSQL internal encoding numbers to character set names, used to
+-- offer the cluster's available encodings as a dropdown in the CREATE DATABASE
+-- dialog.
+CREATE TABLE pg_character_set (
+    encoding INTEGER NOT NULL,
+    name TEXT NOT NULL
+);
+
 

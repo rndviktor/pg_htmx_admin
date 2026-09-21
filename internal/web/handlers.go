@@ -69,6 +69,11 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/execute-query", s.handleExecuteQuery)
 		r.Post("/api/cancel-query", s.handleCancelQuery)
 
+		r.Get("/api/ddl/{kind}/modal", s.handleDDLModal)
+		r.Post("/api/ddl/{kind}/preview", s.handleDDLPreview)
+		r.Post("/api/ddl/{kind}/create", s.handleDDLCreate)
+		r.Post("/api/ddl/{kind}/drop", s.handleDDLDrop)
+
 		r.Get("/api/sessions", s.handleSessions)
 		r.Post("/api/sessions/{pid}/cancel", s.handleSessionCancel)
 		r.Delete("/api/sessions/{pid}", s.handleSessionTerminate)
@@ -380,11 +385,12 @@ func (s *Server) handleServerDatabases(w http.ResponseWriter, r *http.Request) {
 	nodes := make([]treeNode, 0, len(names))
 	for _, name := range names {
 		nodes = append(nodes, treeNode{
-			ID:    fmt.Sprintf("database-%d-%s", id, name),
-			Icon:  "🗄️",
-			Label: name,
-			URL:   fmt.Sprintf("/api/servers/%d/databases/%s/children", id, name),
-			Menu:  "database",
+			ID:       fmt.Sprintf("database-%d-%s", id, name),
+			Icon:     "🗄️",
+			Label:    name,
+			URL:      fmt.Sprintf("/api/servers/%d/databases/%s/children", id, name),
+			Menu:     "database",
+			DataName: name,
 		})
 	}
 
@@ -764,7 +770,7 @@ func (s *Server) handleServerRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderTree(w, leaves("👤", names), "No roles found.")
+	renderTree(w, menuLeaves("👤", names, "role"), "No roles found.")
 }
 
 func (s *Server) handleServerTablespaces(w http.ResponseWriter, r *http.Request) {
@@ -780,7 +786,7 @@ func (s *Server) handleServerTablespaces(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	renderTree(w, leaves("📀", names), "No tablespaces found.")
+	renderTree(w, menuLeaves("📀", names, "tablespace"), "No tablespaces found.")
 }
 
 func (s *Server) handleNewServerModal(w http.ResponseWriter, r *http.Request) {
@@ -887,7 +893,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// Send the count query and the paginated fetch in a single batch so they
 	// execute on one connection in one network round trip instead of two.
 	batch := &pgx.Batch{}
-	batch.Queue("SELECT COUNT(*) FROM ("+query+") _cnt")
+	batch.Queue("SELECT COUNT(*) FROM (" + query + ") _cnt")
 	batch.Queue("SELECT * FROM ("+query+") _q LIMIT $1 OFFSET $2", limit, offset)
 
 	br := conn.SendBatch(r.Context(), batch)

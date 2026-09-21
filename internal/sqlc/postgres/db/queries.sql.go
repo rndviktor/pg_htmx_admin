@@ -172,6 +172,17 @@ func (q *Queries) CountTableObjects(ctx context.Context, arg CountTableObjectsPa
 	return items, nil
 }
 
+const getCurrentUser = `-- name: GetCurrentUser :one
+SELECT current_user
+`
+
+func (q *Queries) GetCurrentUser(ctx context.Context) (interface{}, error) {
+	row := q.db.QueryRow(ctx, getCurrentUser)
+	var column_1 interface{}
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getObjectDependencies = `-- name: GetObjectDependencies :many
 SELECT 'view' AS kind,
     dep_ns.nspname || '.' || dep_rel.relname AS name,
@@ -795,6 +806,32 @@ func (q *Queries) ListConstraints(ctx context.Context, arg ListConstraintsParams
 	return items, nil
 }
 
+const listDatabaseTemplates = `-- name: ListDatabaseTemplates :many
+SELECT datname FROM pg_database
+WHERE datistemplate
+ORDER BY datname
+`
+
+func (q *Queries) ListDatabaseTemplates(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listDatabaseTemplates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var datname string
+		if err := rows.Scan(&datname); err != nil {
+			return nil, err
+		}
+		items = append(items, datname)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDatabases = `-- name: ListDatabases :many
 
 SELECT datname FROM pg_database
@@ -843,6 +880,31 @@ func (q *Queries) ListDomains(ctx context.Context, nspname string) ([]string, er
 			return nil, err
 		}
 		items = append(items, typname)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEncodings = `-- name: ListEncodings :many
+SELECT name FROM pg_character_set
+ORDER BY name
+`
+
+func (q *Queries) ListEncodings(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listEncodings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

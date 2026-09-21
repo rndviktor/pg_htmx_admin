@@ -22,6 +22,11 @@ type PgCast struct {
 	Casttarget int32
 }
 
+type PgCharacterSet struct {
+	Encoding int32
+	Name     string
+}
+
 type PgClass struct {
 	Oid            int32
 	Relname        string

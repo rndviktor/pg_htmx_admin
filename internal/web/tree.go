@@ -25,6 +25,10 @@ type treeNode struct {
 	Sub   string // optional secondary line under the label
 	URL   string // htmx GET url for lazy children; empty means leaf node
 	Menu  string // context menu kind for right click (e.g. "table"); empty = none
+	// DataName is the object name exposed as data-name on the node, so the
+	// context menu can act on it without parsing the label (e.g. Drop for
+	// roles/tablespaces leaves and the database expander).
+	DataName string
 	// Disabled marks a node that has nothing beneath it (e.g. an empty
 	// category folder). It renders grayed out and cannot be expanded.
 	Disabled bool
@@ -44,6 +48,17 @@ func leaves(icon string, names []string) []treeNode {
 	nodes := make([]treeNode, 0, len(names))
 	for _, name := range names {
 		nodes = append(nodes, treeNode{Icon: icon, Label: name})
+	}
+	return nodes
+}
+
+// menuLeaves is leaves but every row also carries a right-click kind and its
+// own object name, so object leaves such as roles and tablespaces expose a
+// context menu (Drop, ...) without a URL to derive the name from.
+func menuLeaves(icon string, names []string, kind string) []treeNode {
+	nodes := make([]treeNode, 0, len(names))
+	for _, name := range names {
+		nodes = append(nodes, treeNode{Icon: icon, Label: name, Menu: kind, DataName: name})
 	}
 	return nodes
 }

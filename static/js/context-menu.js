@@ -96,6 +96,40 @@ function initContextMenu() {
             }
         }
 
+        // Servers can create cluster-level objects (database, role,
+        // tablespace). All generate DDL and run it on the maintenance db.
+        if (currentMenuKind === "server") {
+            menu.appendChild(divider());
+
+            const row = document.createElement("div");
+            row.className = "relative group";
+            const trigger = document.createElement("button");
+            trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
+            trigger.innerHTML = '<span>Create</span><span class="text-xs text-gray-500">\u25B8</span>';
+            const sub = document.createElement("div");
+            sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[10rem]";
+            [["Database", "database"], ["Role", "role"], ["Tablespace", "tablespace"]].forEach((entry) => {
+                const item = menuItem(entry[0], false);
+                item.addEventListener("click", () => openCreateDDLDialog(entry[1], currentTableURL));
+                sub.appendChild(item);
+            });
+            row.append(trigger, sub);
+            menu.appendChild(row);
+        }
+
+        // Server-level objects (database, role, tablespace) can be dropped.
+        if (currentMenuKind === "database" || currentMenuKind === "role" || currentMenuKind === "tablespace") {
+            menu.appendChild(divider());
+
+            const label = currentMenuKind === "database" ? "Drop Database"
+                : currentMenuKind === "role" ? "Drop Role" : "Drop Tablespace";
+            const dropItem = menuItem(label, true);
+            dropItem.addEventListener("click", () => {
+                openDropDDLDialog(currentMenuKind, currentTableURL, (el.dataset.name || "").trim());
+            });
+            menu.appendChild(dropItem);
+        }
+
         // Tables and views offer read-only Properties before the
         // "Scripts" submenu.
         if (currentMenuKind === "table" || currentMenuKind === "view") {
