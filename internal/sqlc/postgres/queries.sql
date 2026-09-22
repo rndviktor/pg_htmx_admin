@@ -46,6 +46,11 @@ SELECT evtname FROM pg_event_trigger ORDER BY 1;
 -- name: ListExtensions :many
 SELECT extname FROM pg_extension ORDER BY 1;
 
+-- name: ListAvailableExtensions :many
+SELECT name FROM pg_available_extensions
+WHERE name NOT IN (SELECT extname FROM pg_extension)
+ORDER BY 1;
+
 -- name: ListForeignDataWrappers :many
 SELECT fdwname FROM pg_foreign_data_wrapper ORDER BY 1;
 

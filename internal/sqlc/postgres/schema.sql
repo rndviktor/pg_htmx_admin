@@ -38,6 +38,11 @@ CREATE TABLE pg_extension (
     extname TEXT NOT NULL
 );
 
+CREATE TABLE pg_available_extensions (
+    name TEXT NOT NULL,
+    default_version TEXT NOT NULL
+);
+
 CREATE TABLE pg_foreign_data_wrapper (
     fdwname TEXT NOT NULL
 );

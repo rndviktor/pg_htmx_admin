@@ -30,6 +30,11 @@ type PgAttribute struct {
 	Attisdropped bool
 }
 
+type PgAvailableExtension struct {
+	Name           string
+	DefaultVersion string
+}
+
 type PgCast struct {
 	Castsource int32
 	Casttarget int32

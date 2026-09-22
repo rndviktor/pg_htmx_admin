@@ -497,6 +497,27 @@ func (s *Server) handleDatabaseCategory(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Extensions and publications are leaves that offer a Drop action from
+	// their context menu. They have no properties panel, so each node carries
+	// a data-url pointing at its category folder to derive the database
+	// context from.
+	if slug == "extensions" || slug == "publications" {
+		kind := strings.TrimSuffix(slug, "s")
+		base := fmt.Sprintf("/api/servers/%d/databases/%s/%s", id, dbName, slug)
+		nodes := make([]treeNode, 0, len(names))
+		for _, name := range names {
+			nodes = append(nodes, treeNode{
+				Icon:     cat.Icon,
+				Label:    name,
+				Menu:     kind,
+				DataName: name,
+				DataURL:  base,
+			})
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
 	renderTree(w, leaves(cat.Icon, names), cat.Empty)
 }
 
@@ -629,6 +650,26 @@ func (s *Server) handleSchemaCategory(w http.ResponseWriter, r *http.Request) {
 			leafName := url.PathEscape(name)
 			base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/%s/%s", id, dbName, schemaName, slug, leafName)
 			nodes = append(nodes, menuLeafProps(cat.Icon, name, kind, base+"/properties"))
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
+	// Procedures are leaves with a Drop (but no properties) action. Their
+	// labels are name(signature)s and each node carries a data-url pointing
+	// at the procedures folder so the drop dialog can derive the schema
+	// context from it.
+	if slug == "procedures" {
+		base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/procedures", id, dbName, schemaName)
+		nodes := make([]treeNode, 0, len(names))
+		for _, name := range names {
+			nodes = append(nodes, treeNode{
+				Icon:     cat.Icon,
+				Label:    name,
+				Menu:     "procedure",
+				DataName: name,
+				DataURL:  base,
+			})
 		}
 		renderTree(w, nodes, cat.Empty)
 		return
@@ -816,7 +857,7 @@ func (s *Server) handleViewCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServerRoles(w http.ResponseWriter, r *http.Request) {
-	pool, _, ok := s.loadServerPool(w, r)
+	pool, id, ok := s.loadServerPool(w, r)
 	if !ok {
 		return
 	}
@@ -828,11 +869,22 @@ func (s *Server) handleServerRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderTree(w, menuLeaves("👤", names, "role"), "No roles found.")
+	base := fmt.Sprintf("/api/servers/%d/roles", id)
+	nodes := make([]treeNode, 0, len(names))
+	for _, name := range names {
+		nodes = append(nodes, treeNode{
+			Icon:     "👤",
+			Label:    name,
+			Menu:     "role",
+			DataName: name,
+			DataURL:  base,
+		})
+	}
+	renderTree(w, nodes, "No roles found.")
 }
 
 func (s *Server) handleServerTablespaces(w http.ResponseWriter, r *http.Request) {
-	pool, _, ok := s.loadServerPool(w, r)
+	pool, id, ok := s.loadServerPool(w, r)
 	if !ok {
 		return
 	}
@@ -844,7 +896,18 @@ func (s *Server) handleServerTablespaces(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	renderTree(w, menuLeaves("📀", names, "tablespace"), "No tablespaces found.")
+	base := fmt.Sprintf("/api/servers/%d/tablespaces", id)
+	nodes := make([]treeNode, 0, len(names))
+	for _, name := range names {
+		nodes = append(nodes, treeNode{
+			Icon:     "📀",
+			Label:    name,
+			Menu:     "tablespace",
+			DataName: name,
+			DataURL:  base,
+		})
+	}
+	renderTree(w, nodes, "No tablespaces found.")
 }
 
 func (s *Server) handleNewServerModal(w http.ResponseWriter, r *http.Request) {

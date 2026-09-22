@@ -1,0 +1,69 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">Create - Index</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+
+        <form hx-post="/api/ddl/index/create" hx-target="#modal-container" hx-swap="innerHTML"
+              hx-disabled-elt="button[type='submit']" class="space-y-4">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="folder_id" value="{{ .FolderID }}">
+            <input type="hidden" name="db" value="{{ .DB }}">
+            <input type="hidden" name="schema" value="{{ .Schema }}">
+            <input type="hidden" name="table" value="{{ .Table }}">
+
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Name (optional)</label>
+                    <input type="text" name="name" placeholder="auto" value="{{ index .Values "name" }}"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                           autocomplete="off" spellcheck="false">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Access method</label>
+                    <select name="method" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="btree" {{ if eq (index .Values "method") "btree" }}selected{{ end }}>btree</option>
+                        <option value="hash" {{ if eq (index .Values "method") "hash" }}selected{{ end }}>hash</option>
+                        <option value="gist" {{ if eq (index .Values "method") "gist" }}selected{{ end }}>gist</option>
+                        <option value="gin" {{ if eq (index .Values "method") "gin" }}selected{{ end }}>gin</option>
+                        <option value="spgist" {{ if eq (index .Values "method") "spgist" }}selected{{ end }}>spgist</option>
+                        <option value="brin" {{ if eq (index .Values "method") "brin" }}selected{{ end }}>brin</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Indexed columns</label>
+                <select name="columns" multiple required size="6"
+                        class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    {{ range (index .Dropdowns "columns") }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+                </select>
+            </div>
+
+            <label class="flex items-center space-x-2 text-sm text-gray-300">
+                <input type="checkbox" name="unique" {{ if eq (index .Values "unique") "on" }}checked{{ end }} class="accent-blue-500">
+                <span>UNIQUE</span>
+            </label>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">SQL Preview</label>
+                <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[5rem] max-h-40 overflow-auto">
+                    <pre class="text-xs font-mono text-gray-300">CREATE INDEX ...</pre>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button type="button" onclick="closeDDL()"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
+                <button type="button" hx-post="/api/ddl/index/preview" hx-include="closest form"
+                        hx-target="#ddl-preview" hx-swap="innerHTML"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Update SQL</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">Create Index</button>
+            </div>
+        </form>
+    </div>
+</div>

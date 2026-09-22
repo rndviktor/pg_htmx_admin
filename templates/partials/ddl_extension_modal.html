@@ -1,0 +1,56 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">Create - Extension</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+
+        <form hx-post="/api/ddl/extension/create" hx-target="#modal-container" hx-swap="innerHTML"
+              hx-disabled-elt="button[type='submit']" class="space-y-4">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="folder_id" value="{{ .FolderID }}">
+            <input type="hidden" name="db" value="{{ .DB }}">
+            <input type="hidden" name="schema" value="{{ .Schema }}">
+            <input type="hidden" name="table" value="{{ .Table }}">
+
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Extension</label>
+                    <select name="name" required class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="">(select)</option>
+                        {{ range (index .Dropdowns "extensions") }}<option value="{{ . }}" {{ if eq . (index $.Values "name") }}selected{{ end }}>{{ . }}</option>{{ end }}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Install into schema</label>
+                    <select name="install_schema" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        {{ range (index .Dropdowns "schemas") }}<option value="{{ . }}" {{ if eq . (index $.Values "install_schema") }}selected{{ end }}>{{ . }}</option>{{ end }}
+                    </select>
+                </div>
+            </div>
+            <label class="flex items-center space-x-2 text-sm text-gray-300">
+                <input type="checkbox" name="cascade" {{ if eq (index .Values "cascade") "on" }}checked{{ end }} class="accent-blue-500">
+                <span>CASCADE</span>
+            </label>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">SQL Preview</label>
+                <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[5rem] max-h-40 overflow-auto">
+                    <pre class="text-xs font-mono text-gray-300">CREATE EXTENSION ...</pre>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button type="button" onclick="closeDDL()"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
+                <button type="button" hx-post="/api/ddl/extension/preview" hx-include="closest form"
+                        hx-target="#ddl-preview" hx-swap="innerHTML"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Update SQL</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">Create Extension</button>
+            </div>
+        </form>
+    </div>
+</div>

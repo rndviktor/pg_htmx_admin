@@ -1,0 +1,83 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">Create - Trigger</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+
+        <form hx-post="/api/ddl/trigger/create" hx-target="#modal-container" hx-swap="innerHTML"
+              hx-disabled-elt="button[type='submit']" class="space-y-4">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="folder_id" value="{{ .FolderID }}">
+            <input type="hidden" name="db" value="{{ .DB }}">
+            <input type="hidden" name="schema" value="{{ .Schema }}">
+            <input type="hidden" name="table" value="{{ .Table }}">
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Name</label>
+                <input type="text" name="name" required placeholder="trg_check_status" value="{{ index .Values "name" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                       autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Timing</label>
+                    <select name="timing" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="BEFORE" {{ if eq (index .Values "timing") "BEFORE" }}selected{{ end }}>BEFORE</option>
+                        <option value="AFTER" {{ if eq (index .Values "timing") "AFTER" }}selected{{ end }}>AFTER</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Events</label>
+                    <select name="events" required class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="INSERT" {{ if eq (index .Values "events") "INSERT" }}selected{{ end }}>INSERT</option>
+                        <option value="UPDATE" {{ if eq (index .Values "events") "UPDATE" }}selected{{ end }}>UPDATE</option>
+                        <option value="DELETE" {{ if eq (index .Values "events") "DELETE" }}selected{{ end }}>DELETE</option>
+                        <option value="TRUNCATE" {{ if eq (index .Values "events") "TRUNCATE" }}selected{{ end }}>TRUNCATE</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Function</label>
+                    <input type="text" name="on_function" required placeholder="public.check_status()"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                           autocomplete="off" spellcheck="false" value="{{ index .Values "on_function" }}">
+                </div>
+                <div class="flex items-end pb-1">
+                    <label class="flex items-center space-x-2 text-sm text-gray-300">
+                        <input type="checkbox" name="instead" {{ if eq (index .Values "instead") "on" }}checked{{ end }} class="accent-blue-500">
+                        <span>INSTEAD OF</span>
+                    </label>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">When expression (optional)</label>
+                <input type="text" name="condition" placeholder="NEW.status IS DISTINCT FROM OLD.status" value="{{ index .Values "condition" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                       autocomplete="off" spellcheck="false">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">SQL Preview</label>
+                <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[5rem] max-h-40 overflow-auto">
+                    <pre class="text-xs font-mono text-gray-300">CREATE TRIGGER ...</pre>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button type="button" onclick="closeDDL()"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
+                <button type="button" hx-post="/api/ddl/trigger/preview" hx-include="closest form"
+                        hx-target="#ddl-preview" hx-swap="innerHTML"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Update SQL</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">Create Trigger</button>
+            </div>
+        </form>
+    </div>
+</div>

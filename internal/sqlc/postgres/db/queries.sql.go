@@ -1155,6 +1155,32 @@ func (q *Queries) GetViewGeneral(ctx context.Context, arg GetViewGeneralParams) 
 	return i, err
 }
 
+const listAvailableExtensions = `-- name: ListAvailableExtensions :many
+SELECT name FROM pg_available_extensions
+WHERE name NOT IN (SELECT extname FROM pg_extension)
+ORDER BY 1
+`
+
+func (q *Queries) ListAvailableExtensions(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAvailableExtensions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCasts = `-- name: ListCasts :many
 
 SELECT '(' || castsource::regtype || ' AS ' || casttarget::regtype || ')' FROM pg_cast ORDER BY 1

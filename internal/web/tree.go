@@ -34,6 +34,11 @@ type treeNode struct {
 	// context menu can open the object's read-only properties panel without
 	// an expand URL to derive one from. Empty means no properties.
 	PropsURL string
+	// DataURL is a context URL used to derive the connection/object context
+	// for DDL dialogs (e.g. drop an extension leaf). It is exposed as
+	// data-url and is distinct from the lazy-load URL so plain leaves can
+	// still offer DDL actions without having children.
+	DataURL string
 	// Disabled marks a node that has nothing beneath it (e.g. an empty
 	// category folder). It renders grayed out and cannot be expanded.
 	Disabled bool
@@ -81,12 +86,14 @@ func menuLeafProps(icon, label, kind, propsURL string) treeNode {
 func categoryFolders(prefix, baseURL string, cats []category) []treeNode {
 	nodes := make([]treeNode, 0, len(cats))
 	for _, c := range cats {
-		nodes = append(nodes, expander(
+		n := expander(
 			prefix+"-"+c.Slug,
 			c.Icon,
 			c.Label,
 			baseURL+"/"+c.Slug,
-		))
+		)
+		n.Menu = c.Menu
+		nodes = append(nodes, n)
 	}
 	return nodes
 }
@@ -101,14 +108,24 @@ func categoryFoldersWithCounts(prefix, baseURL string, cats []category, counts m
 	for _, c := range cats {
 		cnt, counted := counts[c.Slug]
 		if counted && cnt == 0 {
-			nodes = append(nodes, treeNode{Icon: c.Icon, Label: c.Label, Disabled: true})
+			if c.Menu == "" {
+				nodes = append(nodes, treeNode{Icon: c.Icon, Label: c.Label, Disabled: true})
+				continue
+			}
+			// A category with a create action (e.g. an empty Indexes folder)
+			// still renders as a plain expander so right-click can offer
+			// "Create ...". The folder shows the empty message when opened.
+			n := expander(prefix+"-"+c.Slug, c.Icon, c.Label, baseURL+"/"+c.Slug)
+			n.Menu = c.Menu
+			nodes = append(nodes, n)
 			continue
 		}
-		n := expander(prefix+"-"+c.Slug, c.Icon, c.Label, baseURL+"/"+c.Slug)
-		if counted && cnt > 0 {
-			n.Badge = strconv.FormatInt(cnt, 10)
-		}
-		nodes = append(nodes, n)
+n := expander(prefix+"-"+c.Slug, c.Icon, c.Label, baseURL+"/"+c.Slug)
+	n.Menu = c.Menu
+	if counted && cnt > 0 {
+		n.Badge = strconv.FormatInt(cnt, 10)
+	}
+	nodes = append(nodes, n)
 	}
 	return nodes
 }
@@ -139,12 +156,16 @@ func (s *Server) listServers(w http.ResponseWriter, r *http.Request) ([]sqlite.L
 // positional arguments required by the query ordering: database categories
 // take none, schema categories take the schema name as arg 0, and table
 // categories take the schema name as arg 0 and the table name as arg 1.
+// Menu, when set, is the context-menu kind attached to the folder's expander
+// so the folder can offer a "Create ..." action (e.g. "create-table" on the
+// Tables folder of a schema).
 type category struct {
 	Slug      string
 	Label     string
 	Icon      string
 	Empty     string
 	NumArgs   int
+	Menu      string
 	ListNames func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error)
 }
 
@@ -183,7 +204,7 @@ var dbCategories = []category{
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, _ ...string) ([]string, error) {
 			return q(pool).ListEventTriggers(ctx)
 		}},
-	{Slug: "extensions", Label: "Extensions", Icon: "🧩", Empty: "No extensions found.", NumArgs: 0,
+	{Slug: "extensions", Label: "Extensions", Icon: "🧩", Empty: "No extensions found.", NumArgs: 0, Menu: "create-extension",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, _ ...string) ([]string, error) {
 			return q(pool).ListExtensions(ctx)
 		}},
@@ -195,11 +216,11 @@ var dbCategories = []category{
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, _ ...string) ([]string, error) {
 			return q(pool).ListLanguages(ctx)
 		}},
-	{Slug: "publications", Label: "Publications", Icon: "📢", Empty: "No publications found.", NumArgs: 0,
+	{Slug: "publications", Label: "Publications", Icon: "📢", Empty: "No publications found.", NumArgs: 0, Menu: "create-publication",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, _ ...string) ([]string, error) {
 			return q(pool).ListPublications(ctx)
 		}},
-	{Slug: "schemas", Label: "Schemas", Icon: "📁", Empty: "No schemas found.", NumArgs: 0,
+	{Slug: "schemas", Label: "Schemas", Icon: "📁", Empty: "No schemas found.", NumArgs: 0, Menu: "create-schema",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, _ ...string) ([]string, error) {
 			return q(pool).ListSchemas(ctx)
 		}},
@@ -210,28 +231,28 @@ var dbCategories = []category{
 }
 
 var schemaCategories = []category{
-	{Slug: "tables", Label: "Tables", Icon: "📋", Empty: "No tables found.", NumArgs: 1,
+	{Slug: "tables", Label: "Tables", Icon: "📋", Empty: "No tables found.", NumArgs: 1, Menu: "create-table",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListTables(ctx, args[0])
 		}},
-	{Slug: "views", Label: "Views", Icon: "🔭", Empty: "No views found.", NumArgs: 1,
+	{Slug: "views", Label: "Views", Icon: "🔭", Empty: "No views found.", NumArgs: 1, Menu: "create-view",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListViews(ctx, args[0])
 		}},
-	{Slug: "materialized-views", Label: "Materialized Views", Icon: "🧊", Empty: "No materialized views found.", NumArgs: 1,
+	{Slug: "materialized-views", Label: "Materialized Views", Icon: "🧊", Empty: "No materialized views found.", NumArgs: 1, Menu: "create-matview",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListMaterializedViews(ctx, args[0])
 		}},
-	{Slug: "sequences", Label: "Sequences", Icon: "🔢", Empty: "No sequences found.", NumArgs: 1,
+	{Slug: "sequences", Label: "Sequences", Icon: "🔢", Empty: "No sequences found.", NumArgs: 1, Menu: "create-sequence",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListSequences(ctx, args[0])
 		}},
-	{Slug: "functions", Label: "Functions", Icon: "⚙️", Empty: "No functions found.", NumArgs: 1,
+	{Slug: "functions", Label: "Functions", Icon: "⚙️", Empty: "No functions found.", NumArgs: 1, Menu: "create-function",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			items, err := q(pool).ListFunctions(ctx, args[0])
 			return toNames(items, getString), err
 		}},
-	{Slug: "procedures", Label: "Procedures", Icon: "🛠️", Empty: "No procedures found.", NumArgs: 1,
+	{Slug: "procedures", Label: "Procedures", Icon: "🛠️", Empty: "No procedures found.", NumArgs: 1, Menu: "create-procedure",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			items, err := q(pool).ListProcedures(ctx, args[0])
 			return toNames(items, getString), err
@@ -260,7 +281,7 @@ var tableCategories = []category{
 			items, err := q(pool).ListConstraints(ctx, pgdb.ListConstraintsParams{Nspname: args[0], Relname: args[1]})
 			return toNames(items, getString), err
 		}},
-	{Slug: "indexes", Label: "Indexes", Icon: "📇", Empty: "No indexes found.", NumArgs: 2,
+	{Slug: "indexes", Label: "Indexes", Icon: "📇", Empty: "No indexes found.", NumArgs: 2, Menu: "create-index",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListTableIndexes(ctx, pgdb.ListTableIndexesParams{Nspname: args[0], Relname: args[1]})
 		}},
@@ -272,7 +293,7 @@ var tableCategories = []category{
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListTableRules(ctx, pgdb.ListTableRulesParams{Schemaname: args[0], Tablename: args[1]})
 		}},
-	{Slug: "triggers", Label: "Triggers", Icon: "💥", Empty: "No triggers found.", NumArgs: 2,
+	{Slug: "triggers", Label: "Triggers", Icon: "💥", Empty: "No triggers found.", NumArgs: 2, Menu: "create-trigger",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListTableTriggers(ctx, pgdb.ListTableTriggersParams{Nspname: args[0], Relname: args[1]})
 		}},

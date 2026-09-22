@@ -8,12 +8,14 @@ function initContextMenu() {
     let currentTableURL = null;
     let currentMenuKind = "";
     let currentPropsURL = "";
+    let currentDataURL = "";
 
     function hideMenu() {
         menu.classList.add("hidden");
         currentTableURL = null;
         currentMenuKind = "";
         currentPropsURL = "";
+        currentDataURL = "";
     }
 
     function menuItem(label, danger) {
@@ -28,6 +30,18 @@ function initContextMenu() {
         const d = document.createElement("div");
         d.className = "my-1 border-t border-gray-700";
         return d;
+    }
+
+    // Label for the "Create" action of a category folder (e.g. "schema" ->
+    // "Create Schema"). Only kinds wired into the DDL framework are offered.
+    function createLabel(kind) {
+        const labels = {
+            schema: "Schema", sequence: "Sequence", view: "View",
+            matview: "Materialized View", function: "Function", procedure: "Procedure",
+            extension: "Extension", publication: "Publication",
+            index: "Index", trigger: "Trigger",
+        };
+        return labels.hasOwnProperty(kind) ? "Create " + labels[kind] : "";
     }
 
     // Builds the hover-revealed "Scripts" submenu used by table/view and
@@ -54,9 +68,15 @@ function initContextMenu() {
         currentTableURL = null;
         currentMenuKind = el.getAttribute("data-tree-menu") || "";
         currentPropsURL = el.getAttribute("data-props-url") || "";
+        currentDataURL = el.getAttribute("data-url") || "";
 
         const btn = el.querySelector("button[hx-get]");
         if (btn) currentTableURL = btn.getAttribute("hx-get");
+
+        // URL to derive the DDL context (server/db/schema/table) from. Menu
+        // leaves without a lazy-load button fall back to their properties URL
+        // and finally to the explicit data-url.
+        const nodeURL = currentTableURL || currentPropsURL || currentDataURL;
 
         // "Refresh" re-fetches the node's children. The node stays expanded and
         // previously expanded descendants are re-populated as well.
@@ -135,22 +155,49 @@ function initContextMenu() {
             sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[10rem]";
             [["Database", "database"], ["Role", "role"], ["Tablespace", "tablespace"]].forEach((entry) => {
                 const item = menuItem(entry[0], false);
-                item.addEventListener("click", () => openCreateDDLDialog(entry[1], currentTableURL));
+                item.addEventListener("click", () => openCreateDDLDialog(entry[1], nodeURL, ""));
                 sub.appendChild(item);
             });
             row.append(trigger, sub);
             menu.appendChild(row);
         }
 
-        // Server-level objects (database, role, tablespace) can be dropped.
-        if (currentMenuKind === "database" || currentMenuKind === "role" || currentMenuKind === "tablespace") {
+        // Category folders (e.g. the Schemas or Indexes folder) carry a
+        // Menu of the form "create-<kind>" and offer a single Create action.
+        if (currentMenuKind.indexOf("create-") === 0) {
+            const kind = currentMenuKind.slice("create-".length);
+            const label = createLabel(kind);
+            if (label) {
+                menu.appendChild(divider());
+
+                const createItem = menuItem(label, false);
+                createItem.addEventListener("click", () => {
+                    openCreateDDLDialog(kind, nodeURL, ddlFolderID(el, true));
+                });
+                menu.appendChild(createItem);
+            }
+        }
+
+        // Dropable objects: server-level kinds (database, role, tablespace)
+        // plus every Phase A database-scoped leaf/expander kind.
+        const DROP_ITEMS = {
+            database: "Drop Database", role: "Drop Role", tablespace: "Drop Tablespace",
+            schema: "Drop Schema", view: "Drop View", "materialized-view": "Drop Materialized View",
+            sequence: "Drop Sequence", function: "Drop Function", procedure: "Drop Procedure",
+            extension: "Drop Extension", publication: "Drop Publication",
+            index: "Drop Index", trigger: "Drop Trigger",
+        };
+        // Some tree-menu kinds use a different DDL route kind.
+        const DDL_KINDS = { "materialized-view": "matview" };
+
+        if (DROP_ITEMS.hasOwnProperty(currentMenuKind)) {
             menu.appendChild(divider());
 
-            const label = currentMenuKind === "database" ? "Drop Database"
-                : currentMenuKind === "role" ? "Drop Role" : "Drop Tablespace";
-            const dropItem = menuItem(label, true);
+            const dropItem = menuItem(DROP_ITEMS[currentMenuKind], true);
             dropItem.addEventListener("click", () => {
-                openDropDDLDialog(currentMenuKind, currentTableURL, (el.dataset.name || "").trim());
+                const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
+                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
+                openDropDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
             });
             menu.appendChild(dropItem);
         }

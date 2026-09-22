@@ -56,6 +56,30 @@ function connectionFromTreeURL(url) {
     return conn;
 }
 
+// Extracts the DDL context {serverID, dbName, schema, table} from a tree URL.
+// Handles both folder URLs (e.g. .../databases/{db}/extensions or
+// .../tables/{table}/indexes) and object URLs (a trailing /children or
+// /properties is tolerated). Fields are empty when absent from the path.
+function parseObjectContext(url) {
+    const path = (url || "").replace(/\/properties$/, "").replace(/\/children$/, "");
+    const parts = path.split("/");
+    const ctx = { serverID: parts[3] || "", dbName: parts[5] || "", schema: "", table: "" };
+    const schemaIdx = parts.indexOf("schemas");
+    if (schemaIdx >= 0 && parts[schemaIdx + 1]) ctx.schema = parts[schemaIdx + 1];
+    const tableIdx = parts.indexOf("tables");
+    if (tableIdx >= 0 && parts[tableIdx + 1]) ctx.table = parts[tableIdx + 1];
+    return ctx;
+}
+
+// Derives an object name from its tree URL (last path segment), used as a
+// fallback when a node carries no data-name attribute.
+function objectNameFromURL(url) {
+    const path = (url || "").replace(/\/properties$/, "").replace(/\/children$/, "");
+    const parts = path.split("/");
+    const last = parts[parts.length - 1];
+    return last ? decodeURIComponent(last) : "";
+}
+
 // Parses a table URL ending in /.../tables/{table} (with or without a trailing
 // /children). Returns the base URL, the table name and the connection parts.
 function tableURLParts(tableURL) {
