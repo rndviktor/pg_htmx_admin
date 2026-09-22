@@ -8,12 +8,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type PgAm struct {
+	Oid    int32
+	Amname string
+}
+
+type PgAttrdef struct {
+	Adrelid int32
+	Adnum   int32
+	Adbin   string
+}
+
 type PgAttribute struct {
 	Attrelid     int32
 	Attname      string
 	Attnum       int32
 	Atttypid     int32
 	Attcollation int32
+	Attnotnull   bool
+	Atttypmod    int32
 	Attisdropped bool
 }
 
@@ -34,6 +47,7 @@ type PgClass struct {
 	Relkind        string
 	Relowner       int32
 	Reltablespace  int32
+	Relam          int32
 	Reltuples      float64
 	Relhasindex    bool
 	Relrowsecurity bool
@@ -89,6 +103,7 @@ type PgIndex struct {
 	Indrelid     int32
 	Indisunique  bool
 	Indisprimary bool
+	Indnkeyatts  int32
 }
 
 type PgLanguage struct {
@@ -102,8 +117,10 @@ type PgMatview struct {
 }
 
 type PgNamespace struct {
-	Oid     int32
-	Nspname string
+	Oid      int32
+	Nspname  string
+	Nspowner int32
+	Nspacl   []interface{}
 }
 
 type PgPolicy struct {
@@ -117,6 +134,12 @@ type PgProc struct {
 	Proname      string
 	Pronamespace int32
 	Prokind      string
+	Prolang      int32
+	Provolatile  string
+	Prosecdef    bool
+	Proisstrict  bool
+	Proparallel  string
+	Proowner     int32
 }
 
 type PgPublication struct {
@@ -141,6 +164,14 @@ type PgRule struct {
 type PgSequence struct {
 	Sequencename string
 	Schemaname   string
+	DataType     pgtype.Text
+	StartValue   pgtype.Int8
+	MinValue     pgtype.Int8
+	MaxValue     pgtype.Int8
+	IncrementBy  pgtype.Int8
+	Cycle        pgtype.Bool
+	CacheSize    pgtype.Int8
+	LastValue    pgtype.Int8
 }
 
 type PgStatUserTable struct {
@@ -183,6 +214,9 @@ type PgTrigger struct {
 	Tgname       string
 	Tgrelid      int32
 	Tgisinternal bool
+	Tgtype       int32
+	Tgenabled    string
+	Tgfoid       int32
 }
 
 type PgType struct {

@@ -183,6 +183,303 @@ func (q *Queries) GetCurrentUser(ctx context.Context) (interface{}, error) {
 	return column_1, err
 }
 
+const getFunctionDefinition = `-- name: GetFunctionDefinition :one
+SELECT pg_get_functiondef(p.oid) AS definition
+FROM pg_proc p
+JOIN pg_namespace n ON p.pronamespace = n.oid
+WHERE n.nspname = $1 AND (p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')') = $2
+LIMIT 1
+`
+
+type GetFunctionDefinitionParams struct {
+	Nspname string
+	Proname string
+}
+
+func (q *Queries) GetFunctionDefinition(ctx context.Context, arg GetFunctionDefinitionParams) (string, error) {
+	row := q.db.QueryRow(ctx, getFunctionDefinition, arg.Nspname, arg.Proname)
+	var definition string
+	err := row.Scan(&definition)
+	return definition, err
+}
+
+const getFunctionGeneral = `-- name: GetFunctionGeneral :one
+SELECT
+    p.prokind::text AS kind,
+    pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+    pg_get_function_arguments(p.oid) AS arguments,
+    pg_get_function_result(p.oid) AS return_type,
+    l.lanname AS language,
+    CASE p.provolatile WHEN 'i' THEN 'immutable' WHEN 's' THEN 'stable' ELSE 'volatile' END AS volatility,
+    p.prosecdef AS security_definer,
+    p.proisstrict AS strict,
+    CASE p.proparallel WHEN 's' THEN 'safe' WHEN 'r' THEN 'restricted' ELSE 'unsafe' END AS parallel,
+    pg_get_userbyid(p.proowner) AS owner,
+    COALESCE(obj_description(p.oid, 'pg_proc'), '') AS comment
+FROM pg_proc p
+JOIN pg_namespace n ON p.pronamespace = n.oid
+JOIN pg_language l ON l.oid = p.prolang
+WHERE n.nspname = $1 AND (p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')') = $2
+LIMIT 1
+`
+
+type GetFunctionGeneralParams struct {
+	Nspname string
+	Proname string
+}
+
+type GetFunctionGeneralRow struct {
+	Kind              string
+	IdentityArguments string
+	Arguments         string
+	ReturnType        string
+	Language          string
+	Volatility        string
+	SecurityDefiner   bool
+	Strict            bool
+	Parallel          string
+	Owner             string
+	Comment           interface{}
+}
+
+func (q *Queries) GetFunctionGeneral(ctx context.Context, arg GetFunctionGeneralParams) (GetFunctionGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getFunctionGeneral, arg.Nspname, arg.Proname)
+	var i GetFunctionGeneralRow
+	err := row.Scan(
+		&i.Kind,
+		&i.IdentityArguments,
+		&i.Arguments,
+		&i.ReturnType,
+		&i.Language,
+		&i.Volatility,
+		&i.SecurityDefiner,
+		&i.Strict,
+		&i.Parallel,
+		&i.Owner,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getIndexColumns = `-- name: GetIndexColumns :many
+SELECT
+    COALESCE(pg_get_indexdef(i.indexrelid, g.ord::int, true), '') AS column_def
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+JOIN generate_series(1, i.indnkeyatts) AS g(ord) ON true
+WHERE n.nspname = $1 AND tc.relname = $2 AND c.relname = $3
+ORDER BY g.ord
+`
+
+type GetIndexColumnsParams struct {
+	Nspname   string
+	Relname   string
+	Relname_2 string
+}
+
+func (q *Queries) GetIndexColumns(ctx context.Context, arg GetIndexColumnsParams) ([]interface{}, error) {
+	rows, err := q.db.Query(ctx, getIndexColumns, arg.Nspname, arg.Relname, arg.Relname_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []interface{}
+	for rows.Next() {
+		var column_def interface{}
+		if err := rows.Scan(&column_def); err != nil {
+			return nil, err
+		}
+		items = append(items, column_def)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getIndexGeneral = `-- name: GetIndexGeneral :one
+SELECT
+    c.relname AS index_name,
+    pg_get_indexdef(i.indexrelid, 0, true) AS definition,
+    i.indisunique AS is_unique,
+    COALESCE(t.spcname, 'pg_default') AS tablespace,
+    am.amname AS access_method,
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_relation_size(i.indexrelid) AS relation_size,
+    COALESCE(obj_description(i.indexrelid), '') AS comment
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+LEFT JOIN pg_tablespace t ON t.oid = c.reltablespace
+JOIN pg_am am ON am.oid = c.relam
+WHERE n.nspname = $1 AND tc.relname = $2 AND c.relname = $3
+LIMIT 1
+`
+
+type GetIndexGeneralParams struct {
+	Nspname   string
+	Relname   string
+	Relname_2 string
+}
+
+type GetIndexGeneralRow struct {
+	IndexName    string
+	Definition   string
+	IsUnique     bool
+	Tablespace   string
+	AccessMethod string
+	Owner        string
+	RelationSize int64
+	Comment      interface{}
+}
+
+func (q *Queries) GetIndexGeneral(ctx context.Context, arg GetIndexGeneralParams) (GetIndexGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getIndexGeneral, arg.Nspname, arg.Relname, arg.Relname_2)
+	var i GetIndexGeneralRow
+	err := row.Scan(
+		&i.IndexName,
+		&i.Definition,
+		&i.IsUnique,
+		&i.Tablespace,
+		&i.AccessMethod,
+		&i.Owner,
+		&i.RelationSize,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getMatViewColumnsDetailed = `-- name: GetMatViewColumnsDetailed :many
+SELECT
+    a.attname AS column_name,
+    format_type(a.atttypid, a.atttypmod) AS data_type,
+    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+    COALESCE(pg_get_expr(d.adbin, d.adrelid), '') AS column_default,
+    CASE
+        WHEN a.atttypid IN ('varchar'::regtype, 'bpchar'::regtype) THEN NULLIF(a.atttypmod, -1) - 4
+        ELSE NULL
+    END AS character_maximum_length,
+    COALESCE(colsh.collname, '') AS collation,
+    COALESCE(col_description(a.attrelid, a.attnum), '') AS comment
+FROM pg_attribute a
+JOIN pg_class c ON c.oid = a.attrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+LEFT JOIN pg_collation colsh ON colsh.oid = a.attcollation
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
+  AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY a.attnum
+`
+
+type GetMatViewColumnsDetailedParams struct {
+	Nspname string
+	Relname string
+}
+
+type GetMatViewColumnsDetailedRow struct {
+	ColumnName             string
+	DataType               string
+	IsNullable             string
+	ColumnDefault          interface{}
+	CharacterMaximumLength interface{}
+	Collation              string
+	Comment                interface{}
+}
+
+func (q *Queries) GetMatViewColumnsDetailed(ctx context.Context, arg GetMatViewColumnsDetailedParams) ([]GetMatViewColumnsDetailedRow, error) {
+	rows, err := q.db.Query(ctx, getMatViewColumnsDetailed, arg.Nspname, arg.Relname)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMatViewColumnsDetailedRow
+	for rows.Next() {
+		var i GetMatViewColumnsDetailedRow
+		if err := rows.Scan(
+			&i.ColumnName,
+			&i.DataType,
+			&i.IsNullable,
+			&i.ColumnDefault,
+			&i.CharacterMaximumLength,
+			&i.Collation,
+			&i.Comment,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMatViewDefinition = `-- name: GetMatViewDefinition :one
+SELECT pg_get_viewdef(c.oid, true)::text AS definition
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
+LIMIT 1
+`
+
+type GetMatViewDefinitionParams struct {
+	Nspname string
+	Relname string
+}
+
+func (q *Queries) GetMatViewDefinition(ctx context.Context, arg GetMatViewDefinitionParams) (string, error) {
+	row := q.db.QueryRow(ctx, getMatViewDefinition, arg.Nspname, arg.Relname)
+	var definition string
+	err := row.Scan(&definition)
+	return definition, err
+}
+
+const getMatViewGeneral = `-- name: GetMatViewGeneral :one
+SELECT
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_total_relation_size(c.oid) AS relation_size,
+    c.reltuples::bigint AS row_estimate,
+    c.relhasindex AS has_indexes,
+    COALESCE(obj_description(c.oid), '') AS comment,
+    (SELECT count(*) FROM pg_attribute a
+     WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped) AS column_count
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
+LIMIT 1
+`
+
+type GetMatViewGeneralParams struct {
+	Nspname string
+	Relname string
+}
+
+type GetMatViewGeneralRow struct {
+	Owner        string
+	RelationSize int64
+	RowEstimate  int64
+	HasIndexes   bool
+	Comment      interface{}
+	ColumnCount  int64
+}
+
+func (q *Queries) GetMatViewGeneral(ctx context.Context, arg GetMatViewGeneralParams) (GetMatViewGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getMatViewGeneral, arg.Nspname, arg.Relname)
+	var i GetMatViewGeneralRow
+	err := row.Scan(
+		&i.Owner,
+		&i.RelationSize,
+		&i.RowEstimate,
+		&i.HasIndexes,
+		&i.Comment,
+		&i.ColumnCount,
+	)
+	return i, err
+}
+
 const getObjectDependencies = `-- name: GetObjectDependencies :many
 SELECT 'view' AS kind,
     dep_ns.nspname || '.' || dep_rel.relname AS name,
@@ -327,6 +624,85 @@ func (q *Queries) GetPrimaryKeyColumns(ctx context.Context, arg GetPrimaryKeyCol
 		return nil, err
 	}
 	return items, nil
+}
+
+const getSchemaGeneral = `-- name: GetSchemaGeneral :one
+SELECT
+    pg_get_userbyid(n.nspowner) AS owner,
+    COALESCE(obj_description(n.oid), '') AS comment
+FROM pg_namespace n
+WHERE n.nspname = $1
+LIMIT 1
+`
+
+type GetSchemaGeneralRow struct {
+	Owner   string
+	Comment interface{}
+}
+
+func (q *Queries) GetSchemaGeneral(ctx context.Context, nspname string) (GetSchemaGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getSchemaGeneral, nspname)
+	var i GetSchemaGeneralRow
+	err := row.Scan(&i.Owner, &i.Comment)
+	return i, err
+}
+
+const getSequenceGeneral = `-- name: GetSequenceGeneral :one
+SELECT
+    s.data_type,
+    s.start_value,
+    s.min_value,
+    s.max_value,
+    s.increment_by,
+    s.cycle,
+    s.cache_size,
+    s.last_value,
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_relation_size(c.oid) AS relation_size,
+    COALESCE(obj_description(c.oid), '') AS comment
+FROM pg_sequences s
+JOIN pg_class c ON c.relname = s.sequencename AND c.relkind = 'S'
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
+WHERE s.schemaname = $1 AND s.sequencename = $2
+LIMIT 1
+`
+
+type GetSequenceGeneralParams struct {
+	Schemaname   string
+	Sequencename string
+}
+
+type GetSequenceGeneralRow struct {
+	DataType     pgtype.Text
+	StartValue   pgtype.Int8
+	MinValue     pgtype.Int8
+	MaxValue     pgtype.Int8
+	IncrementBy  pgtype.Int8
+	Cycle        pgtype.Bool
+	CacheSize    pgtype.Int8
+	LastValue    pgtype.Int8
+	Owner        string
+	RelationSize int64
+	Comment      interface{}
+}
+
+func (q *Queries) GetSequenceGeneral(ctx context.Context, arg GetSequenceGeneralParams) (GetSequenceGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getSequenceGeneral, arg.Schemaname, arg.Sequencename)
+	var i GetSequenceGeneralRow
+	err := row.Scan(
+		&i.DataType,
+		&i.StartValue,
+		&i.MinValue,
+		&i.MaxValue,
+		&i.IncrementBy,
+		&i.Cycle,
+		&i.CacheSize,
+		&i.LastValue,
+		&i.Owner,
+		&i.RelationSize,
+		&i.Comment,
+	)
+	return i, err
 }
 
 const getTableColumns = `-- name: GetTableColumns :many
@@ -653,6 +1029,71 @@ func (q *Queries) GetTableStatistics(ctx context.Context, arg GetTableStatistics
 		&i.LastAutovacuum,
 		&i.LastAnalyze,
 		&i.LastAutoanalyze,
+	)
+	return i, err
+}
+
+const getTriggerGeneral = `-- name: GetTriggerGeneral :one
+SELECT
+    t.tgname,
+    CASE
+        WHEN t.tgtype & 2 = 2 THEN 'BEFORE'
+        WHEN t.tgtype & 64 = 64 THEN 'INSTEAD OF'
+        ELSE 'AFTER'
+    END AS timing,
+    rtrim(
+        CASE WHEN t.tgtype & 4 = 4 THEN 'INSERT ' ELSE '' END ||
+        CASE WHEN t.tgtype & 8 = 8 THEN 'DELETE ' ELSE '' END ||
+        CASE WHEN t.tgtype & 16 = 16 THEN 'UPDATE ' ELSE '' END ||
+        CASE WHEN t.tgtype & 32 = 32 THEN 'TRUNCATE ' ELSE '' END
+    ) AS events,
+    CASE t.tgenabled
+        WHEN 'O' THEN 'origin'
+        WHEN 'D' THEN 'disabled'
+        WHEN 'R' THEN 'replica'
+        WHEN 'A' THEN 'always'
+        ELSE t.tgenabled::text
+    END AS enabled,
+    t.tgfoid::regproc::text AS function_name,
+    quote_ident(n.nspname) || '.' || quote_ident(tc.relname) AS table_name,
+    pg_get_triggerdef(t.oid) AS definition,
+    COALESCE(obj_description(t.oid, 'pg_trigger'), '') AS comment
+FROM pg_trigger t
+JOIN pg_class tc ON tc.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+WHERE n.nspname = $1 AND tc.relname = $2 AND t.tgname = $3 AND NOT t.tgisinternal
+LIMIT 1
+`
+
+type GetTriggerGeneralParams struct {
+	Nspname string
+	Relname string
+	Tgname  string
+}
+
+type GetTriggerGeneralRow struct {
+	Tgname       string
+	Timing       string
+	Events       string
+	Enabled      string
+	FunctionName string
+	TableName    interface{}
+	Definition   string
+	Comment      interface{}
+}
+
+func (q *Queries) GetTriggerGeneral(ctx context.Context, arg GetTriggerGeneralParams) (GetTriggerGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getTriggerGeneral, arg.Nspname, arg.Relname, arg.Tgname)
+	var i GetTriggerGeneralRow
+	err := row.Scan(
+		&i.Tgname,
+		&i.Timing,
+		&i.Events,
+		&i.Enabled,
+		&i.FunctionName,
+		&i.TableName,
+		&i.Definition,
+		&i.Comment,
 	)
 	return i, err
 }

@@ -156,6 +156,27 @@ LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
 WHERE c.table_schema = $1 AND c.table_name = $2
 ORDER BY c.ordinal_position;
 
+-- name: GetMatViewColumnsDetailed :many
+SELECT
+    a.attname AS column_name,
+    format_type(a.atttypid, a.atttypmod) AS data_type,
+    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+    COALESCE(pg_get_expr(d.adbin, d.adrelid), '') AS column_default,
+    CASE
+        WHEN a.atttypid IN ('varchar'::regtype, 'bpchar'::regtype) THEN NULLIF(a.atttypmod, -1) - 4
+        ELSE NULL
+    END AS character_maximum_length,
+    COALESCE(colsh.collname, '') AS collation,
+    COALESCE(col_description(a.attrelid, a.attnum), '') AS comment
+FROM pg_attribute a
+JOIN pg_class c ON c.oid = a.attrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+LEFT JOIN pg_collation colsh ON colsh.oid = a.attcollation
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
+  AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY a.attnum;
+
 -- name: GetTableInfo :one
 SELECT tableowner, tablespace
 FROM pg_tables
@@ -307,6 +328,141 @@ SELECT
     s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze
 FROM pg_stat_user_tables s
 WHERE s.schemaname = $1 AND s.relname = $2
+LIMIT 1;
+
+-- name: GetMatViewGeneral :one
+SELECT
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_total_relation_size(c.oid) AS relation_size,
+    c.reltuples::bigint AS row_estimate,
+    c.relhasindex AS has_indexes,
+    COALESCE(obj_description(c.oid), '') AS comment,
+    (SELECT count(*) FROM pg_attribute a
+     WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped) AS column_count
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
+LIMIT 1;
+
+-- name: GetMatViewDefinition :one
+SELECT pg_get_viewdef(c.oid, true)::text AS definition
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
+LIMIT 1;
+
+-- name: GetSequenceGeneral :one
+SELECT
+    s.data_type,
+    s.start_value,
+    s.min_value,
+    s.max_value,
+    s.increment_by,
+    s.cycle,
+    s.cache_size,
+    s.last_value,
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_relation_size(c.oid) AS relation_size,
+    COALESCE(obj_description(c.oid), '') AS comment
+FROM pg_sequences s
+JOIN pg_class c ON c.relname = s.sequencename AND c.relkind = 'S'
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
+WHERE s.schemaname = $1 AND s.sequencename = $2
+LIMIT 1;
+
+-- name: GetFunctionGeneral :one
+SELECT
+    p.prokind::text AS kind,
+    pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+    pg_get_function_arguments(p.oid) AS arguments,
+    pg_get_function_result(p.oid) AS return_type,
+    l.lanname AS language,
+    CASE p.provolatile WHEN 'i' THEN 'immutable' WHEN 's' THEN 'stable' ELSE 'volatile' END AS volatility,
+    p.prosecdef AS security_definer,
+    p.proisstrict AS strict,
+    CASE p.proparallel WHEN 's' THEN 'safe' WHEN 'r' THEN 'restricted' ELSE 'unsafe' END AS parallel,
+    pg_get_userbyid(p.proowner) AS owner,
+    COALESCE(obj_description(p.oid, 'pg_proc'), '') AS comment
+FROM pg_proc p
+JOIN pg_namespace n ON p.pronamespace = n.oid
+JOIN pg_language l ON l.oid = p.prolang
+WHERE n.nspname = $1 AND (p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')') = $2
+LIMIT 1;
+
+-- name: GetFunctionDefinition :one
+SELECT pg_get_functiondef(p.oid) AS definition
+FROM pg_proc p
+JOIN pg_namespace n ON p.pronamespace = n.oid
+WHERE n.nspname = $1 AND (p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')') = $2
+LIMIT 1;
+
+-- name: GetIndexGeneral :one
+SELECT
+    c.relname AS index_name,
+    pg_get_indexdef(i.indexrelid, 0, true) AS definition,
+    i.indisunique AS is_unique,
+    COALESCE(t.spcname, 'pg_default') AS tablespace,
+    am.amname AS access_method,
+    pg_get_userbyid(c.relowner) AS owner,
+    pg_relation_size(i.indexrelid) AS relation_size,
+    COALESCE(obj_description(i.indexrelid), '') AS comment
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+LEFT JOIN pg_tablespace t ON t.oid = c.reltablespace
+JOIN pg_am am ON am.oid = c.relam
+WHERE n.nspname = $1 AND tc.relname = $2 AND c.relname = $3
+LIMIT 1;
+
+-- name: GetIndexColumns :many
+SELECT
+    COALESCE(pg_get_indexdef(i.indexrelid, g.ord::int, true), '') AS column_def
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+JOIN generate_series(1, i.indnkeyatts) AS g(ord) ON true
+WHERE n.nspname = $1 AND tc.relname = $2 AND c.relname = $3
+ORDER BY g.ord;
+
+-- name: GetTriggerGeneral :one
+SELECT
+    t.tgname,
+    CASE
+        WHEN t.tgtype & 2 = 2 THEN 'BEFORE'
+        WHEN t.tgtype & 64 = 64 THEN 'INSTEAD OF'
+        ELSE 'AFTER'
+    END AS timing,
+    rtrim(
+        CASE WHEN t.tgtype & 4 = 4 THEN 'INSERT ' ELSE '' END ||
+        CASE WHEN t.tgtype & 8 = 8 THEN 'DELETE ' ELSE '' END ||
+        CASE WHEN t.tgtype & 16 = 16 THEN 'UPDATE ' ELSE '' END ||
+        CASE WHEN t.tgtype & 32 = 32 THEN 'TRUNCATE ' ELSE '' END
+    ) AS events,
+    CASE t.tgenabled
+        WHEN 'O' THEN 'origin'
+        WHEN 'D' THEN 'disabled'
+        WHEN 'R' THEN 'replica'
+        WHEN 'A' THEN 'always'
+        ELSE t.tgenabled::text
+    END AS enabled,
+    t.tgfoid::regproc::text AS function_name,
+    quote_ident(n.nspname) || '.' || quote_ident(tc.relname) AS table_name,
+    pg_get_triggerdef(t.oid) AS definition,
+    COALESCE(obj_description(t.oid, 'pg_trigger'), '') AS comment
+FROM pg_trigger t
+JOIN pg_class tc ON tc.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+WHERE n.nspname = $1 AND tc.relname = $2 AND t.tgname = $3 AND NOT t.tgisinternal
+LIMIT 1;
+
+-- name: GetSchemaGeneral :one
+SELECT
+    pg_get_userbyid(n.nspowner) AS owner,
+    COALESCE(obj_description(n.oid), '') AS comment
+FROM pg_namespace n
+WHERE n.nspname = $1
 LIMIT 1;
 
 -- name: GetObjectPrivileges :many

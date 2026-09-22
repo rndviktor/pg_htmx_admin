@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	pgdb "htmx-golang-excercise/internal/sqlc/postgres/db"
@@ -201,6 +202,37 @@ func (s *Server) handleSelectViewScript(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(map[string]string{"query": query})
 }
 
+// handleSelectMatViewScript returns a SELECT script for a materialized view
+// as JSON {query: "..."}, listing its columns like the table/view SELECT
+// script. information_schema.columns does not expose materialized views, so
+// the catalog-based GetMatViewColumnsDetailed is used instead.
+func (s *Server) handleSelectMatViewScript(w http.ResponseWriter, r *http.Request) {
+	pool, _, _, schemaName, ok := s.loadSchemaPool(w, r)
+	if !ok {
+		return
+	}
+	mvName := chi.URLParam(r, "mvName")
+
+	items, err := pgdb.New(pool).GetMatViewColumnsDetailed(r.Context(), pgdb.GetMatViewColumnsDetailedParams{
+		Nspname: schemaName,
+		Relname: mvName,
+	})
+	if err != nil {
+		http.Error(w, "Failed to query columns", http.StatusInternalServerError)
+		return
+	}
+
+	var cols []string
+	for _, it := range items {
+		cols = append(cols, it.ColumnName)
+	}
+
+	query := selectColumns(cols) + "\nFROM " + qualIdent(schemaName, mvName) + ";"
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"query": query})
+}
+
 // columnLine renders one CREATE TABLE column definition from its metadata,
 // matching pgAdmin's formatting: serial detection, collation, NOT NULL and
 // DEFAULT clauses.
@@ -344,6 +376,25 @@ func buildCreateViewScript(schemaName, viewName, definition string) string {
 	b.WriteString("\n\n-- DROP VIEW IF EXISTS ")
 	b.WriteString(qualified)
 	b.WriteString(";\n\nCREATE OR REPLACE VIEW ")
+	b.WriteString(qualified)
+	b.WriteString(" AS\n")
+	b.WriteString(strings.TrimRight(definition, " \t\r\n"))
+	b.WriteString(";\n")
+
+	return b.String()
+}
+
+// buildCreateMatViewScript renders a pgAdmin-style CREATE MATERIALIZED VIEW
+// script for a materialized view, shared by the matview properties SQL tab.
+func buildCreateMatViewScript(schemaName, matViewName, definition string) string {
+	var b strings.Builder
+	qualified := qualIdent(schemaName, matViewName)
+
+	b.WriteString("-- Materialized View: ")
+	b.WriteString(qualified)
+	b.WriteString("\n\n-- DROP MATERIALIZED VIEW IF EXISTS ")
+	b.WriteString(qualified)
+	b.WriteString(";\n\nCREATE MATERIALIZED VIEW ")
 	b.WriteString(qualified)
 	b.WriteString(" AS\n")
 	b.WriteString(strings.TrimRight(definition, " \t\r\n"))

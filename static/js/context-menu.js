@@ -7,11 +7,13 @@ function initContextMenu() {
 
     let currentTableURL = null;
     let currentMenuKind = "";
+    let currentPropsURL = "";
 
     function hideMenu() {
         menu.classList.add("hidden");
         currentTableURL = null;
         currentMenuKind = "";
+        currentPropsURL = "";
     }
 
     function menuItem(label, danger) {
@@ -28,10 +30,30 @@ function initContextMenu() {
         return d;
     }
 
+    // Builds the hover-revealed "Scripts" submenu used by table/view and
+    // materialized-view nodes. entries is [{label, onPick}].
+    function scriptsSubmenu(entries) {
+        const row = document.createElement("div");
+        row.className = "relative group";
+        const trigger = document.createElement("button");
+        trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
+        trigger.innerHTML = '<span>Scripts</span><span class="text-xs text-gray-500">\u25B8</span>';
+        const sub = document.createElement("div");
+        sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[12rem]";
+        entries.forEach((entry) => {
+            const item = menuItem(entry.label, false);
+            item.addEventListener("click", entry.onPick);
+            sub.appendChild(item);
+        });
+        row.append(trigger, sub);
+        return row;
+    }
+
     function openMenu(x, y, el) {
         menu.innerHTML = "";
         currentTableURL = null;
         currentMenuKind = el.getAttribute("data-tree-menu") || "";
+        currentPropsURL = el.getAttribute("data-props-url") || "";
 
         const btn = el.querySelector("button[hx-get]");
         if (btn) currentTableURL = btn.getAttribute("hx-get");
@@ -49,10 +71,13 @@ function initContextMenu() {
         menu.appendChild(refreshItem);
 
         // "Query Tool" opens an empty script tab connected to the
-        // node's database (valid for database, schema and table).
+        // node's database (valid for database, schema and table). Leaf
+        // objects (materialized views, sequences, functions, indexes,
+        // triggers) carry no children button, so their /properties URL —
+        // which is still database-scoped — supplies the connection instead.
         const qtItem = menuItem("Query Tool", false);
         qtItem.addEventListener("click", () => {
-            const conn = connectionFromTreeURL(currentTableURL);
+            const conn = connectionFromTreeURL(currentTableURL) || connectionFromTreeURL(currentPropsURL);
             if (conn) {
                 openQueryToolTab(conn.serverID, conn.serverName, conn.dbName);
             } else {
@@ -130,34 +155,39 @@ function initContextMenu() {
             menu.appendChild(dropItem);
         }
 
-        // Tables and views offer read-only Properties before the
-        // "Scripts" submenu.
-        if (currentMenuKind === "table" || currentMenuKind === "view") {
+        // "Properties": tables/views derive their /properties endpoint from
+        // the children URL; leaf objects (materialized views, sequences,
+        // functions, indexes, triggers, schemas) carry it directly as
+        // data-props-url.
+        const propsURL = currentMenuKind === "table" || currentMenuKind === "view"
+            ? (currentTableURL ? currentTableURL.replace(/\/children$/, "") + "/properties" : "")
+            : currentPropsURL;
+        if (propsURL) {
             menu.appendChild(divider());
-
             const propsItem = menuItem("Properties", false);
-            propsItem.addEventListener("click", () => openPropertiesTab(currentTableURL, currentMenuKind));
+            propsItem.addEventListener("click", () => openPropertiesTab(propsURL, currentMenuKind));
             menu.appendChild(propsItem);
+        }
 
-            menu.appendChild(divider());
-
-            const row = document.createElement("div");
-            row.className = "relative group";
-            const trigger = document.createElement("button");
-            trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
-            trigger.innerHTML = '<span>Scripts</span><span class="text-xs text-gray-500">\u25B8</span>';
-            const sub = document.createElement("div");
-            sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[12rem]";
-            const labels = currentMenuKind === "table"
-                ? ["CREATE Script", "DELETE Script", "INSERT Script", "SELECT Script", "UPDATE Script"]
-                : ["CREATE Script", "INSERT Script", "SELECT Script"];
-            labels.forEach((label) => {
-                const item = menuItem(label, false);
-                item.addEventListener("click", () => openScriptTab(label, currentTableURL));
-                sub.appendChild(item);
+        // "Scripts" submenu entries per node kind. Tables and views fetch the
+        // script from their children URL; materialized views serve a read-only
+        // SELECT script from the same columns-script endpoint.
+        const scriptEntries = [];
+        if (currentMenuKind === "table") {
+            ["CREATE Script", "DELETE Script", "INSERT Script", "SELECT Script", "UPDATE Script"]
+                .forEach((label) => scriptEntries.push({ label, onPick: () => openScriptTab(label, currentTableURL) }));
+        } else if (currentMenuKind === "view") {
+            ["CREATE Script", "INSERT Script", "SELECT Script"]
+                .forEach((label) => scriptEntries.push({ label, onPick: () => openScriptTab(label, currentTableURL) }));
+        } else if (currentMenuKind === "materialized-view") {
+            scriptEntries.push({
+                label: "SELECT Script",
+                onPick: () => openScriptTab("SELECT Script", currentPropsURL.replace(/\/properties$/, "")),
             });
-            row.append(trigger, sub);
-            menu.appendChild(row);
+        }
+        if (scriptEntries.length > 0) {
+            menu.appendChild(divider());
+            menu.appendChild(scriptsSubmenu(scriptEntries));
         }
 
         menu.classList.remove("hidden");

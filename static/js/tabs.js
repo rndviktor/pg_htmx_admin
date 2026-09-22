@@ -246,6 +246,14 @@ function setRunningSpinner(panel, running) {
     if (spin) spin.classList.toggle("hidden", !running);
 }
 
+// Reports that a script tab has no bound server/database connection instead
+// of failing silently with no output at all. Shared by executeQuery and
+// executeExplain.
+function reportNotConnected(panel, status) {
+    if (status) status.textContent = "Not connected to a database";
+    logMessage(panel, "warn", "This script tab is not connected to a database. Right-click a server, database, schema or object node and choose Query Tool.");
+}
+
 function executeQuery(btn, page) {
     const panel = btn.closest("[id^='tab-content']");
     if (!panel) return;
@@ -257,7 +265,13 @@ function executeQuery(btn, page) {
     if (!form || !grid) return;
 
     const params = formConnectionParams(form);
-    if (!params) return;
+    if (!params) {
+        // The script tab is not bound to a server/database (e.g. it was
+        // opened from a node with no connection). Surface that instead of
+        // failing silently with no output at all.
+        reportNotConnected(panel, status);
+        return;
+    }
 
     const ed = window.SqlEditor;
     const q = editorQuery(panel);
@@ -420,7 +434,10 @@ function executeExplain(btn, analyze) {
     if (!form) return;
 
     const params = formConnectionParams(form);
-    if (!params) return;
+    if (!params) {
+        reportNotConnected(panel, status);
+        return;
+    }
 
     const query = editorQuery(panel).query;
     if (!query) return;

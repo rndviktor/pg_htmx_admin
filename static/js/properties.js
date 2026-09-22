@@ -9,12 +9,26 @@
 // editor.
 // -----------------------------------------------------------------------------
 
-// Opens a properties tab for a table/view tree node URL. kind is the context
-// menu kind ("table" | "view") and drives the section set rendered server-side.
-function openPropertiesTab(tableURL, kind) {
-    const t = tableURLParts(tableURL);
+// Tab labels per context-menu kind (the kind drives the section set rendered
+// server-side from the /properties endpoint).
+const PROP_KIND_LABELS = {
+    "table": "Table",
+    "view": "View",
+    "materialized-view": "Materialized View",
+    "sequence": "Sequence",
+    "function": "Function",
+    "index": "Index",
+    "trigger": "Trigger",
+    "schema": "Schema",
+};
+
+// Opens a properties tab for any object carrying a /properties endpoint.
+// propsURL is the full endpoint; kind is the context-menu kind used to name
+// the tab. Properties tabs are ephemeral: they carry data-tab-kind=
+// "properties" so collectWorkspaceState() skips them.
+function openPropertiesTab(propsURL, kind) {
     const id = newTabId();
-    tabMeta[id] = { name: (kind === "view" ? "View" : "Table") + " Properties", path: "", dirty: false };
+    tabMeta[id] = { name: (PROP_KIND_LABELS[kind] || "Object") + " Properties", path: "", dirty: false };
 
     // Create tab button (mirrors openTab, without the script-tab save state).
     const btn = document.createElement("button");
@@ -43,7 +57,7 @@ function openPropertiesTab(tableURL, kind) {
     switchTab(id);
     scheduleSave();
 
-    return fetch(t.url + "/properties")
+    return fetch(propsURL)
         .then((r) => { if (!r.ok) throw r; return r.text(); })
         .then((html) => { panel.innerHTML = html; })
         .catch(() => {

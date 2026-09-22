@@ -29,6 +29,11 @@ type treeNode struct {
 	// context menu can act on it without parsing the label (e.g. Drop for
 	// roles/tablespaces leaves and the database expander).
 	DataName string
+	// PropsURL is the full /properties endpoint of a leaf node (e.g. a
+	// sequence or a table's index). It is exposed as data-props-url so the
+	// context menu can open the object's read-only properties panel without
+	// an expand URL to derive one from. Empty means no properties.
+	PropsURL string
 	// Disabled marks a node that has nothing beneath it (e.g. an empty
 	// category folder). It renders grayed out and cannot be expanded.
 	Disabled bool
@@ -61,6 +66,13 @@ func menuLeaves(icon string, names []string, kind string) []treeNode {
 		nodes = append(nodes, treeNode{Icon: icon, Label: name, Menu: kind, DataName: name})
 	}
 	return nodes
+}
+
+// menuLeafProps builds a single non-expandable object leaf that carries a
+// right-click kind plus its own /properties endpoint, so the context menu can
+// open the object's read-only properties panel.
+func menuLeafProps(icon, label, kind, propsURL string) treeNode {
+	return treeNode{Icon: icon, Label: label, Menu: kind, DataName: label, PropsURL: propsURL}
 }
 
 // categoryFolders builds the expander nodes for the category folders under a

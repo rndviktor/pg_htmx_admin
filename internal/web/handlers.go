@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,7 +103,21 @@ func (s *Server) Routes() http.Handler {
 
 					r.Route("/schemas/{schemaName}", func(r chi.Router) {
 						r.Get("/children", s.handleSchemaChildren)
+						r.Get("/properties", s.handleSchemaProperties)
 						r.Get("/{category}", s.handleSchemaCategory)
+
+						r.Route("/materialized-views/{mvName}", func(r chi.Router) {
+							r.Get("/properties", s.handleMatViewProperties)
+							r.Get("/columns-script", s.handleSelectMatViewScript)
+						})
+
+						r.Route("/sequences/{seqName}", func(r chi.Router) {
+							r.Get("/properties", s.handleSequenceProperties)
+						})
+
+						r.Route("/functions/{funcName}", func(r chi.Router) {
+							r.Get("/properties", s.handleFunctionProperties)
+						})
 
 						r.Route("/tables/{tableName}", func(r chi.Router) {
 							r.Get("/children", s.handleTableChildren)
@@ -112,6 +127,14 @@ func (s *Server) Routes() http.Handler {
 							r.Get("/create-script", s.handleCreateScript)
 							r.Get("/insert-script", s.handleInsertScript)
 							r.Get("/delete-script", s.handleDeleteScript)
+
+							r.Route("/indexes/{indexName}", func(r chi.Router) {
+								r.Get("/properties", s.handleIndexProperties)
+							})
+
+							r.Route("/triggers/{triggerName}", func(r chi.Router) {
+								r.Get("/properties", s.handleTriggerProperties)
+							})
 						})
 
 						r.Route("/views/{viewName}", func(r chi.Router) {
@@ -454,16 +477,20 @@ func (s *Server) handleDatabaseCategory(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Schemas are not leaves: each one is an expandable node whose children
-	// are the schema's own object folders (tables, views, ...).
+	// are the schema's own object folders (tables, views, ...). The node also
+	// carries its own /properties endpoint so its read-only panel can be
+	// opened from the context menu.
 	if slug == "schemas" {
 		nodes := make([]treeNode, 0, len(names))
 		for _, name := range names {
+			schemaPath := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s", id, dbName, name)
 			nodes = append(nodes, treeNode{
-				ID:    fmt.Sprintf("schema-%d-%s-%s", id, dbName, name),
-				Icon:  "🗂️",
-				Label: name,
-				URL:   fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/children", id, dbName, name),
-				Menu:  "schema",
+				ID:       fmt.Sprintf("schema-%d-%s-%s", id, dbName, name),
+				Icon:     "🗂️",
+				Label:    name,
+				URL:      schemaPath + "/children",
+				Menu:     "schema",
+				PropsURL: schemaPath + "/properties",
 			})
 		}
 		renderTree(w, nodes, cat.Empty)
@@ -592,6 +619,21 @@ func (s *Server) handleSchemaCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Materialized views, sequences and functions are leaves that expose a
+	// read-only properties panel from their context menu. Function labels are
+	// name(signature)s, so the properties URL percent-escapes the label.
+	if slug == "materialized-views" || slug == "sequences" || slug == "functions" {
+		kind := strings.TrimSuffix(slug, "s")
+		nodes := make([]treeNode, 0, len(names))
+		for _, name := range names {
+			leafName := url.PathEscape(name)
+			base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/%s/%s", id, dbName, schemaName, slug, leafName)
+			nodes = append(nodes, menuLeafProps(cat.Icon, name, kind, base+"/properties"))
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
 	renderTree(w, leaves(cat.Icon, names), cat.Empty)
 }
 
@@ -682,7 +724,7 @@ func (s *Server) handleTableCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pool, _, _, schemaName, tableName, ok := s.loadTablePool(w, r)
+	pool, id, dbName, schemaName, tableName, ok := s.loadTablePool(w, r)
 	if !ok {
 		return
 	}
@@ -691,6 +733,22 @@ func (s *Server) handleTableCategory(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Failed to load %s: %v", cat.Label, err)
 		http.Error(w, "Failed to load "+cat.Label, http.StatusInternalServerError)
+		return
+	}
+
+	// Index and trigger leaves expose a read-only properties panel from their
+	// context menu, so each node carries its own /properties endpoint.
+	if slug == "indexes" || slug == "triggers" {
+		kind := "index"
+		if slug == "triggers" {
+			kind = "trigger"
+		}
+		nodes := make([]treeNode, 0, len(names))
+		for _, name := range names {
+			base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/tables/%s/%s/%s", id, dbName, schemaName, tableName, slug, name)
+			nodes = append(nodes, menuLeafProps(cat.Icon, name, kind, base+"/properties"))
+		}
+		renderTree(w, nodes, cat.Empty)
 		return
 	}
 

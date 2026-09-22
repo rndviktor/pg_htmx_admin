@@ -1,6 +1,6 @@
 <ul class="space-y-1 text-sm pl-2">
     {{ range .Nodes }}{{ if .URL }}
-    <li{{ if .Menu }} data-tree-menu="{{ .Menu }}"{{ end }}{{ if .DataName }} data-name="{{ .DataName }}"{{ end }}{{ if .State }} data-tree-state="{{ .State }}"{{ end }}>
+    <li{{ if .Menu }} data-tree-menu="{{ .Menu }}"{{ end }}{{ if .DataName }} data-name="{{ .DataName }}"{{ end }}{{ if .PropsURL }} data-props-url="{{ .PropsURL }}"{{ end }}{{ if .State }} data-tree-state="{{ .State }}"{{ end }}>
         <button class="hover:text-blue-400 text-left w-full"
                 hx-get="{{ .URL }}"
                 hx-target="#{{ .ID }}"
@@ -13,7 +13,7 @@
         <div id="{{ .ID }}" class="ml-4"></div>
     </li>
     {{ else }}
-    <li{{ if .Disabled }} class="opacity-60 text-gray-500 cursor-default select-none pointer-events-none"{{ else }} class="hover:text-blue-400 cursor-pointer"{{ end }}{{ if .Menu }} data-tree-menu="{{ .Menu }}"{{ end }}{{ if .DataName }} data-name="{{ .DataName }}"{{ end }}>{{ .Icon }} {{ .Label }}</li>
+    <li{{ if .Disabled }} class="opacity-60 text-gray-500 cursor-default select-none pointer-events-none"{{ else }} class="hover:text-blue-400 cursor-pointer"{{ end }}{{ if .Menu }} data-tree-menu="{{ .Menu }}"{{ end }}{{ if .DataName }} data-name="{{ .DataName }}"{{ end }}{{ if .PropsURL }} data-props-url="{{ .PropsURL }}"{{ end }}>{{ .Icon }} {{ .Label }}</li>
     {{ end }}{{ else }}
     <li class="opacity-60 text-gray-500 cursor-default select-none pointer-events-none">{{ $.EmptyMessage }}</li>
     {{ end }}

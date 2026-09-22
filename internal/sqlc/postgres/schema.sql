@@ -25,7 +25,9 @@ CREATE TABLE pg_cast (
 
 CREATE TABLE pg_namespace (
     oid SERIAL PRIMARY KEY,
-    nspname TEXT NOT NULL
+    nspname TEXT NOT NULL,
+    nspowner INTEGER NOT NULL,
+    nspacl aclitem[]
 );
 
 CREATE TABLE pg_event_trigger (
@@ -74,14 +76,28 @@ CREATE TABLE pg_matviews (
 
 CREATE TABLE pg_sequences (
     sequencename TEXT NOT NULL,
-    schemaname TEXT NOT NULL
+    schemaname TEXT NOT NULL,
+    data_type TEXT,
+    start_value BIGINT,
+    min_value BIGINT,
+    max_value BIGINT,
+    increment_by BIGINT,
+    cycle BOOLEAN,
+    cache_size BIGINT,
+    last_value BIGINT
 );
 
 CREATE TABLE pg_proc (
     oid SERIAL PRIMARY KEY,
     proname TEXT NOT NULL,
     pronamespace INTEGER NOT NULL,
-    prokind CHAR NOT NULL
+    prokind CHAR NOT NULL,
+    prolang INTEGER NOT NULL,
+    provolatile CHAR NOT NULL,
+    prosecdef BOOLEAN NOT NULL,
+    proisstrict BOOLEAN NOT NULL,
+    proparallel CHAR NOT NULL,
+    proowner INTEGER NOT NULL
 );
 
 CREATE TABLE pg_type (
@@ -97,6 +113,7 @@ CREATE TABLE pg_class (
     relkind CHAR NOT NULL,
     relowner INTEGER NOT NULL,
     reltablespace INTEGER NOT NULL,
+    relam INTEGER NOT NULL,
     reltuples DOUBLE PRECISION NOT NULL,
     relhasindex BOOLEAN NOT NULL,
     relrowsecurity BOOLEAN NOT NULL,
@@ -120,14 +137,23 @@ CREATE TABLE pg_attribute (
     attnum INTEGER NOT NULL,
     atttypid INTEGER NOT NULL,
     attcollation INTEGER NOT NULL,
+    attnotnull BOOLEAN NOT NULL,
+    atttypmod INTEGER NOT NULL,
     attisdropped BOOLEAN NOT NULL
+);
+
+CREATE TABLE pg_attrdef (
+    adrelid INTEGER NOT NULL,
+    adnum INTEGER NOT NULL,
+    adbin TEXT NOT NULL
 );
 
 CREATE TABLE pg_index (
     indexrelid INTEGER NOT NULL,
     indrelid INTEGER NOT NULL,
     indisunique BOOLEAN NOT NULL,
-    indisprimary BOOLEAN NOT NULL
+    indisprimary BOOLEAN NOT NULL,
+    indnkeyatts INTEGER NOT NULL
 );
 
 CREATE TABLE pg_depend (
@@ -170,7 +196,15 @@ CREATE TABLE pg_collation (
 CREATE TABLE pg_trigger (
     tgname TEXT NOT NULL,
     tgrelid INTEGER NOT NULL,
-    tgisinternal BOOLEAN NOT NULL
+    tgisinternal BOOLEAN NOT NULL,
+    tgtype INTEGER NOT NULL,
+    tgenabled CHAR NOT NULL,
+    tgfoid INTEGER NOT NULL
+);
+
+CREATE TABLE pg_am (
+    oid INTEGER NOT NULL,
+    amname TEXT NOT NULL
 );
 
 CREATE TABLE pg_policies (

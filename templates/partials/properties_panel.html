@@ -13,16 +13,24 @@
   <!-- In-panel section tabs -->
   <div class="flex items-center text-xs bg-gray-800 border-b border-gray-700 shrink-0 overflow-x-auto">
     <button data-prop-tab="General" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-blue-500 text-blue-400 hover:text-gray-200 font-bold">General</button>
+    {{ if or (eq .Kind "table") (eq .Kind "view") (eq .Kind "materialized-view") (eq .Kind "index") }}
     <button data-prop-tab="Columns" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Columns</button>
+    {{ end }}
     {{ if eq .Kind "table" }}
     <button data-prop-tab="Constraints" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Constraints</button>
+    {{ end }}
+    {{ if or (eq .Kind "table") (eq .Kind "materialized-view") }}
     <button data-prop-tab="Indexes" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Indexes</button>
     {{ end }}
+    {{ if or (eq .Kind "table") (eq .Kind "view") (eq .Kind "materialized-view") (eq .Kind "sequence") (eq .Kind "schema") }}
     <button data-prop-tab="Privileges" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Privileges</button>
-    {{ if eq .Kind "table" }}
+    {{ end }}
+    {{ if or (eq .Kind "table") (eq .Kind "materialized-view") }}
     <button data-prop-tab="Statistics" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Statistics</button>
     {{ end }}
+    {{ if or (eq .Kind "table") (eq .Kind "view") (eq .Kind "materialized-view") }}
     <button data-prop-tab="Dependencies" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Dependencies</button>
+    {{ end }}
     <button data-prop-tab="SQL" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">SQL</button>
   </div>
 
@@ -41,8 +49,15 @@
   </div>
 
   <!-- Pane: Columns -->
+  {{ if or (eq .Kind "table") (eq .Kind "view") (eq .Kind "materialized-view") (eq .Kind "index") }}
   <div data-prop-pane="Columns" class="prop-pane flex-1 overflow-auto p-3 hidden">
-    {{ if .Columns }}
+    {{ if .IndexColumns }}
+    <ol class="list-decimal list-inside text-sm space-y-1">
+      {{ range .IndexColumns }}
+      <li class="font-mono text-gray-300">{{ . }}</li>
+      {{ end }}
+    </ol>
+    {{ else if .Columns }}
     <table class="w-full text-xs">
       <thead>
         <tr class="text-left text-gray-500 border-b border-gray-700">
@@ -73,6 +88,7 @@
     <div class="text-xs text-gray-500 italic">No columns found.</div>
     {{ end }}
   </div>
+  {{ end }}
 
   <!-- Pane: Constraints (tables only) -->
   {{ if eq .Kind "table" }}
@@ -102,8 +118,10 @@
     <div class="text-xs text-gray-500 italic">No constraints found.</div>
     {{ end }}
   </div>
+  {{ end }}
 
-  <!-- Pane: Indexes (tables only) -->
+  <!-- Pane: Indexes (tables and materialized views) -->
+  {{ if or (eq .Kind "table") (eq .Kind "materialized-view") }}
   <div data-prop-pane="Indexes" class="prop-pane flex-1 overflow-auto p-3 hidden">
     {{ if .Indexes }}
     <table class="w-full text-xs">
@@ -160,8 +178,8 @@
     {{ end }}
   </div>
 
-  <!-- Pane: Statistics (tables only) -->
-  {{ if eq .Kind "table" }}
+  <!-- Pane: Statistics (tables and materialized views) -->
+  {{ if or (eq .Kind "table") (eq .Kind "materialized-view") }}
   <div data-prop-pane="Statistics" class="prop-pane flex-1 overflow-auto p-3 hidden">
     {{ if .Stats }}
     <table class="w-full text-sm">
