@@ -921,3 +921,558 @@ func buildCreateSchemaScript(schemaName, owner, comment string) string {
 
 	return b.String()
 }
+
+// -----------------------------------------------------------------------------
+// Database properties
+// -----------------------------------------------------------------------------
+
+// handleDatabaseProperties renders the read-only properties panel of a
+// database: General (owner, encoding, collation, tablespace, connection
+// limit, size, ...) and a SQL preview of its CREATE DATABASE script.
+func (s *Server) handleDatabaseProperties(w http.ResponseWriter, r *http.Request) {
+	pool, _, dbName, ok := s.loadDatabasePool(w, r)
+	if !ok {
+		return
+	}
+
+	ctx := r.Context()
+
+	const q = `SELECT pg_get_userbyid(d.datdba) AS owner,
+    pg_encoding_to_char(d.encoding) AS encoding,
+    d.datcollate AS collate,
+    d.datctype AS ctype,
+    COALESCE(t.spcname, 'pg_default') AS tablespace,
+    d.datconnlimit AS connlimit,
+    d.datallowconn AS allowconn,
+    pg_database_size(d.datname) AS size,
+    COALESCE(shobj_description(d.oid, 'pg_database'), '') AS comment
+FROM pg_database d
+LEFT JOIN pg_tablespace t ON t.oid = d.dattablespace
+WHERE d.datname = $1`
+
+	var owner, encoding, collate, ctype, tablespace, comment string
+	var connLimit int
+	var allowConn bool
+	var size int64
+	err := pool.QueryRow(ctx, q, dbName).Scan(
+		&owner, &encoding, &collate, &ctype, &tablespace, &connLimit, &allowConn, &size, &comment,
+	)
+	if err != nil {
+		propertiesGeneralErr(w, "database", "Database not found.", err)
+		return
+	}
+
+	vm := propertiesVM{
+		Kind:      "database",
+		KindLabel: "Database",
+		Icon:      "🗄️",
+		Qualified: quoteIfNeeded(dbName),
+		General: []propKV{
+			{Label: "Owner", Value: owner},
+			{Label: "Encoding", Value: encoding},
+			{Label: "Collation", Value: collate},
+			{Label: "Character type", Value: ctype},
+			{Label: "Tablespace", Value: tablespace},
+			{Label: "Connection limit", Value: strconv.Itoa(connLimit)},
+			{Label: "Allow connections", Value: yn(allowConn)},
+			{Label: "Database size", Value: formatBytes(size)},
+			{Label: "Comment", Value: emptyDash(comment)},
+		},
+		SQL: buildCreateDatabaseScript(dbName, owner, encoding, collate, ctype, tablespace, connLimit, comment),
+	}
+
+	RenderPartial(w, "properties_panel.html", vm)
+}
+
+// buildCreateDatabaseScript renders a pgAdmin-style CREATE DATABASE script
+// from the database's live catalog settings.
+func buildCreateDatabaseScript(name, owner, encoding, collate, ctype, tablespace string, connLimit int, comment string) string {
+	var b strings.Builder
+	b.WriteString("-- Database: ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString("\n\n-- DROP DATABASE IF EXISTS ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString(";\n\nCREATE DATABASE ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString("\n    WITH")
+	if owner != "" {
+		b.WriteString("\n    OWNER = ")
+		b.WriteString(quoteIfNeeded(owner))
+	}
+	if encoding != "" {
+		b.WriteString("\n    ENCODING = ")
+		b.WriteString(quoteLiteral(encoding))
+	}
+	if collate != "" {
+		b.WriteString("\n    LC_COLLATE = ")
+		b.WriteString(quoteLiteral(collate))
+	}
+	if ctype != "" {
+		b.WriteString("\n    LC_CTYPE = ")
+		b.WriteString(quoteLiteral(ctype))
+	}
+	if tablespace != "" {
+		b.WriteString("\n    TABLESPACE = ")
+		b.WriteString(quoteIfNeeded(tablespace))
+	}
+	b.WriteString("\n    CONNECTION LIMIT = ")
+	b.WriteString(strconv.Itoa(connLimit))
+	b.WriteString(";\n")
+
+	if comment != "" {
+		b.WriteString("\nCOMMENT ON DATABASE ")
+		b.WriteString(quoteIfNeeded(name))
+		b.WriteString(" IS ")
+		b.WriteString(quoteLiteral(comment))
+		b.WriteString(";")
+	}
+
+	return b.String()
+}
+
+// -----------------------------------------------------------------------------
+// Role properties
+// -----------------------------------------------------------------------------
+
+// handleRoleProperties renders the read-only properties panel of a role:
+// General (privileges, connection limit, valid until, ...) and a SQL preview
+// of its CREATE ROLE script. The catalog never exposes a password hash, so
+// the script omits one, matching pgAdmin's own generated scripts.
+func (s *Server) handleRoleProperties(w http.ResponseWriter, r *http.Request) {
+	pool, _, ok := s.loadServerPool(w, r)
+	if !ok {
+		return
+	}
+	roleName := chi.URLParam(r, "roleName")
+	if roleName == "" {
+		http.Error(w, "Invalid role name", http.StatusBadRequest)
+		return
+	}
+	if unescaped, err := url.PathUnescape(roleName); err == nil {
+		roleName = unescaped
+	}
+
+	ctx := r.Context()
+
+	const q = `SELECT rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolinherit,
+    rolreplication, rolconnlimit,
+    COALESCE(to_char(NULLIF(rolvaliduntil, 'infinity'::timestamptz), 'YYYY-MM-DD"T"HH24:MI'), ''),
+    COALESCE(shobj_description(oid, 'pg_authid'), '')
+FROM pg_roles WHERE rolname = $1`
+
+	var super, createdb, createrole, canLogin, inherit, repl bool
+	var connLimit int
+	var validUntil, comment string
+	err := pool.QueryRow(ctx, q, roleName).Scan(
+		&super, &createdb, &createrole, &canLogin, &inherit, &repl, &connLimit, &validUntil, &comment,
+	)
+	if err != nil {
+		propertiesGeneralErr(w, "role", "Role not found.", err)
+		return
+	}
+
+	vm := propertiesVM{
+		Kind:      "role",
+		KindLabel: "Role",
+		Icon:      "👤",
+		Qualified: quoteIfNeeded(roleName),
+		General: []propKV{
+			{Label: "Superuser", Value: yn(super)},
+			{Label: "Can login", Value: yn(canLogin)},
+			{Label: "Create databases", Value: yn(createdb)},
+			{Label: "Create roles", Value: yn(createrole)},
+			{Label: "Inherit", Value: yn(inherit)},
+			{Label: "Replication", Value: yn(repl)},
+			{Label: "Connection limit", Value: strconv.Itoa(connLimit)},
+			{Label: "Valid until", Value: emptyDash(validUntil)},
+			{Label: "Comment", Value: emptyDash(comment)},
+		},
+		SQL: buildCreateRoleScript(roleName, super, createdb, createrole, canLogin, inherit, repl, connLimit, validUntil, comment),
+	}
+
+	RenderPartial(w, "properties_panel.html", vm)
+}
+
+// buildCreateRoleScript renders a pgAdmin-style CREATE ROLE script.
+func buildCreateRoleScript(name string, super, createdb, createrole, canLogin, inherit, replication bool, connLimit int, validUntil, comment string) string {
+	tri := func(b bool, on, off string) string {
+		if b {
+			return on
+		}
+		return off
+	}
+
+	var b strings.Builder
+	b.WriteString("-- Role: ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString("\n\n-- DROP ROLE IF EXISTS ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString(";\n\nCREATE ROLE ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString(" WITH\n    ")
+	b.WriteString(tri(super, "SUPERUSER", "NOSUPERUSER"))
+	b.WriteString("\n    ")
+	b.WriteString(tri(createdb, "CREATEDB", "NOCREATEDB"))
+	b.WriteString("\n    ")
+	b.WriteString(tri(createrole, "CREATEROLE", "NOCREATEROLE"))
+	b.WriteString("\n    ")
+	b.WriteString(tri(inherit, "INHERIT", "NOINHERIT"))
+	b.WriteString("\n    ")
+	b.WriteString(tri(canLogin, "LOGIN", "NOLOGIN"))
+	b.WriteString("\n    ")
+	b.WriteString(tri(replication, "REPLICATION", "NOREPLICATION"))
+	b.WriteString("\n    CONNECTION LIMIT ")
+	b.WriteString(strconv.Itoa(connLimit))
+	if validUntil != "" {
+		b.WriteString("\n    VALID UNTIL ")
+		b.WriteString(quoteLiteral(validUntil))
+	}
+	b.WriteString(";\n")
+
+	if comment != "" {
+		b.WriteString("\nCOMMENT ON ROLE ")
+		b.WriteString(quoteIfNeeded(name))
+		b.WriteString(" IS ")
+		b.WriteString(quoteLiteral(comment))
+		b.WriteString(";")
+	}
+
+	return b.String()
+}
+
+// -----------------------------------------------------------------------------
+// Tablespace properties
+// -----------------------------------------------------------------------------
+
+// handleTablespaceProperties renders the read-only properties panel of a
+// tablespace: General (owner, filesystem location, ...) and a SQL preview of
+// its CREATE TABLESPACE script.
+func (s *Server) handleTablespaceProperties(w http.ResponseWriter, r *http.Request) {
+	pool, _, ok := s.loadServerPool(w, r)
+	if !ok {
+		return
+	}
+	tsName := chi.URLParam(r, "tsName")
+	if tsName == "" {
+		http.Error(w, "Invalid tablespace name", http.StatusBadRequest)
+		return
+	}
+	if unescaped, err := url.PathUnescape(tsName); err == nil {
+		tsName = unescaped
+	}
+
+	ctx := r.Context()
+
+	const q = `SELECT pg_get_userbyid(spcowner),
+    COALESCE(pg_tablespace_location(oid), ''),
+    COALESCE(shobj_description(oid, 'pg_tablespace'), '')
+FROM pg_tablespace WHERE spcname = $1`
+
+	var owner, location, comment string
+	err := pool.QueryRow(ctx, q, tsName).Scan(&owner, &location, &comment)
+	if err != nil {
+		propertiesGeneralErr(w, "tablespace", "Tablespace not found.", err)
+		return
+	}
+
+	vm := propertiesVM{
+		Kind:      "tablespace",
+		KindLabel: "Tablespace",
+		Icon:      "📀",
+		Qualified: quoteIfNeeded(tsName),
+		General: []propKV{
+			{Label: "Owner", Value: owner},
+			{Label: "Location", Value: emptyDash(location)},
+			{Label: "Comment", Value: emptyDash(comment)},
+		},
+		SQL: buildCreateTablespaceScript(tsName, owner, location, comment),
+	}
+
+	RenderPartial(w, "properties_panel.html", vm)
+}
+
+// buildCreateTablespaceScript renders a pgAdmin-style CREATE TABLESPACE script.
+func buildCreateTablespaceScript(name, owner, location, comment string) string {
+	var b strings.Builder
+	b.WriteString("-- Tablespace: ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString("\n\n-- DROP TABLESPACE IF EXISTS ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString(";\n\nCREATE TABLESPACE ")
+	b.WriteString(quoteIfNeeded(name))
+	if owner != "" {
+		b.WriteString("\n    OWNER ")
+		b.WriteString(quoteIfNeeded(owner))
+	}
+	b.WriteString("\n    LOCATION ")
+	b.WriteString(quoteLiteral(location))
+	b.WriteString(";\n")
+
+	if comment != "" {
+		b.WriteString("\nCOMMENT ON TABLESPACE ")
+		b.WriteString(quoteIfNeeded(name))
+		b.WriteString(" IS ")
+		b.WriteString(quoteLiteral(comment))
+		b.WriteString(";")
+	}
+
+	return b.String()
+}
+
+// -----------------------------------------------------------------------------
+// Procedure properties
+// -----------------------------------------------------------------------------
+
+// handleProcedureProperties renders the read-only properties panel of a
+// procedure: General (owner, arguments, language, ...) and a SQL preview of
+// its definition. Procedures share pg_proc with functions, so this reuses
+// GetFunctionGeneral/GetFunctionDefinition verbatim (neither query filters on
+// prokind) rather than adding new catalog queries.
+func (s *Server) handleProcedureProperties(w http.ResponseWriter, r *http.Request) {
+	pool, _, _, schemaName, ok := s.loadSchemaPool(w, r)
+	if !ok {
+		return
+	}
+	procName := chi.URLParam(r, "procName")
+	if procName == "" {
+		http.Error(w, "Invalid procedure name", http.StatusBadRequest)
+		return
+	}
+	if unescaped, err := url.PathUnescape(procName); err == nil {
+		procName = unescaped
+	}
+
+	ctx := r.Context()
+	q := pgdb.New(pool)
+
+	gen, err := q.GetFunctionGeneral(ctx, pgdb.GetFunctionGeneralParams{
+		Nspname: schemaName,
+		Proname: procName,
+	})
+	if err != nil {
+		propertiesGeneralErr(w, "procedure", "Procedure not found.", err)
+		return
+	}
+
+	vm := propertiesVM{
+		Kind:      "procedure",
+		KindLabel: "Procedure",
+		Icon:      "🛠️",
+		Qualified: quoteIfNeeded(schemaName) + "." + procName,
+		General: []propKV{
+			{Label: "Owner", Value: gen.Owner},
+			{Label: "Arguments", Value: gen.Arguments},
+			{Label: "Language", Value: gen.Language},
+			{Label: "Security definer", Value: yn(gen.SecurityDefiner)},
+			{Label: "Comment", Value: emptyDash(getString(gen.Comment))},
+		},
+	}
+
+	if def, defErr := q.GetFunctionDefinition(ctx, pgdb.GetFunctionDefinitionParams{
+		Nspname: schemaName,
+		Proname: procName,
+	}); defErr == nil {
+		vm.SQL = def
+	}
+
+	RenderPartial(w, "properties_panel.html", vm)
+}
+
+// -----------------------------------------------------------------------------
+// Extension properties
+// -----------------------------------------------------------------------------
+
+// handleExtensionProperties renders the read-only properties panel of an
+// extension: General (version, install schema, ...) and a SQL preview of its
+// CREATE EXTENSION script.
+func (s *Server) handleExtensionProperties(w http.ResponseWriter, r *http.Request) {
+	pool, _, _, ok := s.loadDatabasePool(w, r)
+	if !ok {
+		return
+	}
+	extName := chi.URLParam(r, "extName")
+	if extName == "" {
+		http.Error(w, "Invalid extension name", http.StatusBadRequest)
+		return
+	}
+	if unescaped, err := url.PathUnescape(extName); err == nil {
+		extName = unescaped
+	}
+
+	ctx := r.Context()
+
+	const q = `SELECT e.extversion,
+    n.nspname,
+    COALESCE(obj_description(e.oid, 'pg_extension'), '')
+FROM pg_extension e
+JOIN pg_namespace n ON n.oid = e.extnamespace
+WHERE e.extname = $1`
+
+	var version, schemaName, comment string
+	err := pool.QueryRow(ctx, q, extName).Scan(&version, &schemaName, &comment)
+	if err != nil {
+		propertiesGeneralErr(w, "extension", "Extension not found.", err)
+		return
+	}
+
+	vm := propertiesVM{
+		Kind:      "extension",
+		KindLabel: "Extension",
+		Icon:      "🧩",
+		Qualified: quoteIfNeeded(extName),
+		General: []propKV{
+			{Label: "Version", Value: version},
+			{Label: "Schema", Value: schemaName},
+			{Label: "Comment", Value: emptyDash(comment)},
+		},
+		SQL: buildCreateExtensionScript(extName, schemaName, version, comment),
+	}
+
+	RenderPartial(w, "properties_panel.html", vm)
+}
+
+// buildCreateExtensionScript renders a pgAdmin-style CREATE EXTENSION script.
+func buildCreateExtensionScript(name, schemaName, version, comment string) string {
+	var b strings.Builder
+	b.WriteString("-- Extension: ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString("\n\n-- DROP EXTENSION IF EXISTS ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString(";\n\nCREATE EXTENSION IF NOT EXISTS ")
+	b.WriteString(quoteIfNeeded(name))
+	if schemaName != "" {
+		b.WriteString("\n    SCHEMA ")
+		b.WriteString(quoteIfNeeded(schemaName))
+	}
+	if version != "" {
+		b.WriteString("\n    VERSION ")
+		b.WriteString(quoteLiteral(version))
+	}
+	b.WriteString(";\n")
+
+	if comment != "" {
+		b.WriteString("\nCOMMENT ON EXTENSION ")
+		b.WriteString(quoteIfNeeded(name))
+		b.WriteString(" IS ")
+		b.WriteString(quoteLiteral(comment))
+		b.WriteString(";")
+	}
+
+	return b.String()
+}
+
+// -----------------------------------------------------------------------------
+// Publication properties
+// -----------------------------------------------------------------------------
+
+// handlePublicationProperties renders the read-only properties panel of a
+// publication: General (owner, publish options, ...) and a SQL preview of its
+// CREATE PUBLICATION script.
+func (s *Server) handlePublicationProperties(w http.ResponseWriter, r *http.Request) {
+	pool, _, _, ok := s.loadDatabasePool(w, r)
+	if !ok {
+		return
+	}
+	pubName := chi.URLParam(r, "pubName")
+	if pubName == "" {
+		http.Error(w, "Invalid publication name", http.StatusBadRequest)
+		return
+	}
+	if unescaped, err := url.PathUnescape(pubName); err == nil {
+		pubName = unescaped
+	}
+
+	ctx := r.Context()
+
+	const q = `SELECT pg_get_userbyid(pubowner),
+    puballtables, pubinsert, pubupdate, pubdelete, pubtruncate, pubviaroot,
+    COALESCE(obj_description(oid, 'pg_publication'), '')
+FROM pg_publication WHERE pubname = $1`
+
+	var owner, comment string
+	var allTables, insert, update, del, truncate, viaRoot bool
+	err := pool.QueryRow(ctx, q, pubName).Scan(
+		&owner, &allTables, &insert, &update, &del, &truncate, &viaRoot, &comment,
+	)
+	if err != nil {
+		propertiesGeneralErr(w, "publication", "Publication not found.", err)
+		return
+	}
+
+	vm := propertiesVM{
+		Kind:      "publication",
+		KindLabel: "Publication",
+		Icon:      "📢",
+		Qualified: quoteIfNeeded(pubName),
+		General: []propKV{
+			{Label: "Owner", Value: owner},
+			{Label: "All tables", Value: yn(allTables)},
+			{Label: "Publish insert", Value: yn(insert)},
+			{Label: "Publish update", Value: yn(update)},
+			{Label: "Publish delete", Value: yn(del)},
+			{Label: "Publish truncate", Value: yn(truncate)},
+			{Label: "Publish via partition root", Value: yn(viaRoot)},
+			{Label: "Comment", Value: emptyDash(comment)},
+		},
+		SQL: buildCreatePublicationScript(pubName, owner, allTables, insert, update, del, truncate, viaRoot, comment),
+	}
+
+	RenderPartial(w, "properties_panel.html", vm)
+}
+
+// buildCreatePublicationScript renders a pgAdmin-style CREATE PUBLICATION
+// script. Member tables are not enumerated here (that would need a separate
+// pg_publication_tables query out of scope for this General/SQL panel).
+func buildCreatePublicationScript(name, owner string, allTables, insert, update, del, truncate, viaRoot bool, comment string) string {
+	var b strings.Builder
+	b.WriteString("-- Publication: ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString("\n\n-- DROP PUBLICATION IF EXISTS ")
+	b.WriteString(quoteIfNeeded(name))
+	b.WriteString(";\n\nCREATE PUBLICATION ")
+	b.WriteString(quoteIfNeeded(name))
+	if allTables {
+		b.WriteString("\n    FOR ALL TABLES")
+	} else {
+		b.WriteString("\n    -- FOR TABLE ... (member tables not shown here)")
+	}
+
+	var opts []string
+	if insert {
+		opts = append(opts, "insert")
+	}
+	if update {
+		opts = append(opts, "update")
+	}
+	if del {
+		opts = append(opts, "delete")
+	}
+	if truncate {
+		opts = append(opts, "truncate")
+	}
+	withOpts := []string{"publish = " + quoteLiteral(strings.Join(opts, ", "))}
+	if viaRoot {
+		withOpts = append(withOpts, "publish_via_partition_root = true")
+	}
+	b.WriteString("\n    WITH (")
+	b.WriteString(strings.Join(withOpts, ", "))
+	b.WriteString(");\n")
+
+	if owner != "" {
+		b.WriteString("\nALTER PUBLICATION ")
+		b.WriteString(quoteIfNeeded(name))
+		b.WriteString(" OWNER TO ")
+		b.WriteString(quoteIfNeeded(owner))
+		b.WriteString(";")
+	}
+
+	if comment != "" {
+		b.WriteString("\nCOMMENT ON PUBLICATION ")
+		b.WriteString(quoteIfNeeded(name))
+		b.WriteString(" IS ")
+		b.WriteString(quoteLiteral(comment))
+		b.WriteString(";")
+	}
+
+	return b.String()
+}

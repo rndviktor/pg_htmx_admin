@@ -95,12 +95,29 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/roles", s.handleServerRoles)
 				r.Get("/tablespaces", s.handleServerTablespaces)
 
+				r.Route("/roles/{roleName}", func(r chi.Router) {
+					r.Get("/properties", s.handleRoleProperties)
+				})
+
+				r.Route("/tablespaces/{tsName}", func(r chi.Router) {
+					r.Get("/properties", s.handleTablespaceProperties)
+				})
+
 				r.Route("/databases/{dbName}", func(r chi.Router) {
 					r.Get("/children", s.handleDatabaseChildren)
+					r.Get("/properties", s.handleDatabaseProperties)
 					r.Get("/{category}", s.handleDatabaseCategory)
 					r.Get("/monitoring", s.handleMonitoring)
 					r.Get("/monitoring/stream", s.handleMonitoringStream)
 					r.Get("/autocomplete-schema", s.handleAutocompleteSchema)
+
+					r.Route("/extensions/{extName}", func(r chi.Router) {
+						r.Get("/properties", s.handleExtensionProperties)
+					})
+
+					r.Route("/publications/{pubName}", func(r chi.Router) {
+						r.Get("/properties", s.handlePublicationProperties)
+					})
 
 					r.Route("/schemas/{schemaName}", func(r chi.Router) {
 						r.Get("/children", s.handleSchemaChildren)
@@ -118,6 +135,10 @@ func (s *Server) Routes() http.Handler {
 
 						r.Route("/functions/{funcName}", func(r chi.Router) {
 							r.Get("/properties", s.handleFunctionProperties)
+						})
+
+						r.Route("/procedures/{procName}", func(r chi.Router) {
+							r.Get("/properties", s.handleProcedureProperties)
 						})
 
 						r.Route("/tables/{tableName}", func(r chi.Router) {
@@ -415,6 +436,7 @@ func (s *Server) handleServerDatabases(w http.ResponseWriter, r *http.Request) {
 			URL:      fmt.Sprintf("/api/servers/%d/databases/%s/children", id, name),
 			Menu:     "database",
 			DataName: name,
+			PropsURL: fmt.Sprintf("/api/servers/%d/databases/%s/properties", id, url.PathEscape(name)),
 		})
 	}
 
@@ -498,10 +520,10 @@ func (s *Server) handleDatabaseCategory(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Extensions and publications are leaves that offer a Drop action from
-	// their context menu. They have no properties panel, so each node carries
-	// a data-url pointing at its category folder to derive the database
-	// context from.
+	// Extensions and publications are leaves that expose a read-only
+	// properties panel from their context menu. Each node also carries a
+	// data-url pointing at its category folder so Drop can derive the
+	// database context from it.
 	if slug == "extensions" || slug == "publications" {
 		kind := strings.TrimSuffix(slug, "s")
 		base := fmt.Sprintf("/api/servers/%d/databases/%s/%s", id, dbName, slug)
@@ -513,6 +535,7 @@ func (s *Server) handleDatabaseCategory(w http.ResponseWriter, r *http.Request) 
 				Menu:     kind,
 				DataName: name,
 				DataURL:  base,
+				PropsURL: base + "/" + url.PathEscape(name) + "/properties",
 			})
 		}
 		renderTree(w, nodes, cat.Empty)
@@ -656,10 +679,10 @@ func (s *Server) handleSchemaCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Procedures are leaves with a Drop (but no properties) action. Their
-	// labels are name(signature)s and each node carries a data-url pointing
-	// at the procedures folder so the drop dialog can derive the schema
-	// context from it.
+	// Procedures are leaves that expose a read-only properties panel from
+	// their context menu, same as functions. Their labels are
+	// name(signature)s and each node carries a data-url pointing at the
+	// procedures folder so the drop dialog can derive the schema context.
 	if slug == "procedures" {
 		base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/procedures", id, dbName, schemaName)
 		nodes := make([]treeNode, 0, len(names))
@@ -670,6 +693,7 @@ func (s *Server) handleSchemaCategory(w http.ResponseWriter, r *http.Request) {
 				Menu:     "procedure",
 				DataName: name,
 				DataURL:  base,
+				PropsURL: base + "/" + url.PathEscape(name) + "/properties",
 			})
 		}
 		renderTree(w, nodes, cat.Empty)
@@ -879,6 +903,7 @@ func (s *Server) handleServerRoles(w http.ResponseWriter, r *http.Request) {
 			Menu:     "role",
 			DataName: name,
 			DataURL:  base,
+			PropsURL: base + "/" + url.PathEscape(name) + "/properties",
 		})
 	}
 	renderTree(w, nodes, "No roles found.")
@@ -906,6 +931,7 @@ func (s *Server) handleServerTablespaces(w http.ResponseWriter, r *http.Request)
 			Menu:     "tablespace",
 			DataName: name,
 			DataURL:  base,
+			PropsURL: base + "/" + url.PathEscape(name) + "/properties",
 		})
 	}
 	renderTree(w, nodes, "No tablespaces found.")

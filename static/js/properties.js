@@ -20,6 +20,12 @@ const PROP_KIND_LABELS = {
     "index": "Index",
     "trigger": "Trigger",
     "schema": "Schema",
+    "database": "Database",
+    "role": "Role",
+    "tablespace": "Tablespace",
+    "procedure": "Procedure",
+    "extension": "Extension",
+    "publication": "Publication",
 };
 
 // Opens a properties tab for any object carrying a /properties endpoint.

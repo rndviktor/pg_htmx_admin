@@ -26,7 +26,10 @@ that is missing, ordered by priority.
   Indexes / Privileges / Statistics / Dependencies / SQL detail for tables,
   views, materialized views, sequences, functions, indexes, triggers and
   schemas — column types/defaults/nullability, constraints, ownership,
-  privileges, comments, dependencies and statistics
+  privileges, comments, dependencies and statistics. Databases, roles,
+  tablespaces, procedures, extensions and publications now get a read-only
+  General + SQL properties panel too (owner/attributes plus a reconstructed
+  CREATE script; procedures reuse the function definition query directly)
   (`internal/web/properties.go`, `templates/partials/properties_panel.html`).
 - **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
   for 13 object kinds — database, role, tablespace, schema, sequence, view,
@@ -64,13 +67,15 @@ that is missing, ordered by priority.
    Table and `ALTER TABLE` column DDL — add/drop/alter column), rules, RLS
    policies, table partitioning, and richer index/trigger *create* options
    (constraint options, `USING` storage parameters).
-2. **Properties coverage is partial** — no properties panel at all for
-   databases, roles, tablespaces, procedures, extensions and publications, nor
-   for the plain leaves (columns, constraints, RLS policies, rules, types,
-   domains, casts, catalogs, event triggers, foreign data wrappers, languages,
-   subscriptions). Tabs are also partial: Constraints only on tables;
-   Privileges only on table/view/materialized-view/sequence/schema;
-   Statistics and Dependencies only on table/view/materialized-view.
+2. **Properties coverage is partial** — databases, roles, tablespaces,
+   procedures, extensions and publications now have a General + SQL
+   properties panel, but there is still no panel at all for the plain leaves
+   (columns, constraints, RLS policies, rules, types, domains, casts,
+   catalogs, event triggers, foreign data wrappers, languages, subscriptions).
+   Tabs are also partial: Constraints only on tables; Privileges only on
+   table/view/materialized-view/sequence/schema (not yet on the six kinds
+   above, or on function/procedure); Statistics and Dependencies only on
+   table/view/materialized-view.
 3. **Remaining context-menu gaps** — Disconnect / Connect / Try to reconnect,
    Create (database/role/tablespace/table), Drop (13 kinds, with CASCADE/FORCE),
    Alter (13 kinds) and Properties/Scripts/Query Tool are all present, but
