@@ -106,6 +106,13 @@ Tailwind is compiled separately (see `tailwind.config.js` / `tailwind.input.css`
 
 ### 6. Regenerating sqlc queries
 
+Requires the [sqlc](https://sqlc.dev/) CLI (this repo is developed against **sqlc v1.30.0**):
+
+```sh
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+sqlc version   # confirm v1.30.0
+```
+
 ```sh
 # After editing queries in internal/sqlc/{postgres,sqlite}/queries.sql
 sqlc generate -f internal/sqlc/postgres/sqlc.yml

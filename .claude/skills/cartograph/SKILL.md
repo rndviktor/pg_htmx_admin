@@ -27,6 +27,7 @@ All DDL (create / drop / alter of databases, roles, tablespaces, schemas, tables
 - `renderDDLModal` fills `KindLabel`/`HasForce`/`HasCascade` from the kind map and defaults nil `Values`/`Dropdowns`, so early-error paths can pass empty data safely.
 - Create-form defaults (login/inherit/connlimit, owner = current user) are applied in `handleDDLModal` before rendering.
 - `alterPrefill` is best-effort: load current catalog values with raw queries, log and continue on failure. **Avoid sqlc regeneration** — prefer raw queries or existing sqlc queries (e.g. `GetSchemaGeneral`) for new catalog access.
+- When sqlc regeneration is unavoidable, use **sqlc v1.30.0** (`sqlc version`) — the version this repo's generated code (`internal/sqlc/{postgres,sqlite}/db/`) is pinned to; a different version can reformat unrelated generated code as a side effect. Install with `go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0`. Regenerate with `sqlc generate -f internal/sqlc/postgres/sqlc.yml` (and the sqlite counterpart if sqlite queries changed) — see README.md "Regenerating sqlc queries".
 - Success protocol: `refreshDDLTree(w, folderID)` responds with `HX-Trigger {"ddl-refresh": "<tree container id>"}`; `static/js/ddl.js` re-fetches that container (folders stay expanded) and closes the modal after ~1.6 s.
 
 ## Templates & frontend conventions
