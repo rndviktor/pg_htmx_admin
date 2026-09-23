@@ -83,6 +83,36 @@
         openModal("/api/ddl/" + kind + "/modal?" + qs.toString());
     };
 
+    // "DROP Script": fetches the DROP SQL for any droppable object kind and
+    // opens it in a read-only script tab, without running it (unlike
+    // openDropDDLDialog, which opens the preview-then-run modal).
+    window.openDropScriptTab = function (kind, nodeURL, name) {
+        const ctx = parseObjectContext(nodeURL);
+        if (!ctx.serverID || !name) return;
+        const qs = new URLSearchParams();
+        qs.set("server_id", ctx.serverID);
+        if (ctx.schema) qs.set("schema", ctx.schema);
+        if (ctx.table) qs.set("table", ctx.table);
+        qs.set("name", name);
+        fetch("/api/ddl/" + kind + "/drop-script?" + qs.toString())
+            .then((r) => { if (!r.ok) throw r; return r.json(); })
+            .then((data) => {
+                const conn = connectionFromTreeURL(nodeURL);
+                openTab("DROP " + name, data.query,
+                    conn ? conn.serverID : ctx.serverID,
+                    conn ? conn.serverName : null,
+                    conn ? conn.dbName : ctx.dbName);
+            })
+            .catch(async (httpErr) => {
+                let detail = httpErr ? (httpErr.statusText || "HTTP " + httpErr.status) : "";
+                if (httpErr && typeof httpErr.text === "function") {
+                    try { detail = (await httpErr.text()) || detail; } catch (e) { /* ignore */ }
+                }
+                const msg = "Failed to generate DROP script" + (detail ? ": " + detail : ".");
+                if (window.showToast) window.showToast(msg, "error");
+            });
+    };
+
     // Creates a fresh blank column row from the hidden template. The row is a
     // full width (6-field) copy so at least one empty column placeholder never
     // forces input fields onto separate lines.

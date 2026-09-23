@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,7 +57,12 @@ var (
 	// automatically on page refresh until the user reconnects them. The flag is
 	// also persisted in the server table so it survives across restarts.
 	disconnectedServers = make(map[int64]bool)
-	mu                  sync.RWMutex
+	// disconnectedDatabases is the same tracking as disconnectedServers, one
+	// level down: a single database explicitly disconnected by the user
+	// within an otherwise-connected server. Persisted in the
+	// disconnected_database sqlite table.
+	disconnectedDatabases = make(map[dbPoolKey]bool)
+	mu                    sync.RWMutex
 )
 
 type dbPoolKey struct {
@@ -157,6 +163,16 @@ func (s *Server) getOrCreateDbPool(ctx context.Context, id int64, database strin
 	return pool, nil
 }
 
+// peekCachedDbPool returns the cached pgx pool for one database of a
+// registered server without dialing it. It returns nil when that database
+// has not been connected to yet this session. Used to tag database tree
+// nodes with a connection-state dot without incurring connection latency.
+func (s *Server) peekCachedDbPool(id int64, database string) *pgxpool.Pool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return dbSpecificPools[dbPoolKey{ServerID: id, Database: database}]
+}
+
 // isDisconnected reports whether the user explicitly disconnected the server.
 func (s *Server) isDisconnected(id int64) bool {
 	mu.RLock()
@@ -211,7 +227,10 @@ func (s *Server) loadDisconnectedServers() {
 	}
 }
 
-// dropServerPools closes and removes the cached pools of a server.
+// dropServerPools closes and removes the cached pools of a server. It also
+// clears any per-database disconnected flags for that server, so a later
+// server reconnect starts every one of its databases fresh instead of
+// leaving them stuck gray.
 func (s *Server) dropServerPools(id int64) {
 	mu.Lock()
 	if p := dbPools[id]; p != nil {
@@ -224,6 +243,73 @@ func (s *Server) dropServerPools(id int64) {
 			delete(dbSpecificPools, key)
 			p.Close()
 		}
+	}
+	for key := range disconnectedDatabases {
+		if key.ServerID == id {
+			delete(disconnectedDatabases, key)
+		}
+	}
+	mu.Unlock()
+	if err := s.DB.ClearDatabaseDisconnectedForServer(context.Background(), id); err != nil {
+		log.Printf("Failed to clear persisted disconnected databases for server %d: %v", id, err)
+	}
+}
+
+// dropDatabasePool closes and removes the cached pool of a single database.
+func (s *Server) dropDatabasePool(id int64, database string) {
+	mu.Lock()
+	key := dbPoolKey{ServerID: id, Database: database}
+	if p := dbSpecificPools[key]; p != nil {
+		delete(dbSpecificPools, key)
+		p.Close()
+	}
+	mu.Unlock()
+}
+
+// isDatabaseDisconnected reports whether the user explicitly disconnected
+// this database (distinct from its server being disconnected).
+func (s *Server) isDatabaseDisconnected(id int64, database string) bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return disconnectedDatabases[dbPoolKey{ServerID: id, Database: database}]
+}
+
+// setDatabaseDisconnected marks a database as explicitly disconnected (true)
+// or reconnected (false), persisting the flag so it survives restarts.
+func (s *Server) setDatabaseDisconnected(id int64, database string, disconnected bool) {
+	ctx := context.Background()
+	var err error
+	if disconnected {
+		err = s.DB.SetDatabaseDisconnected(ctx, sqlite.SetDatabaseDisconnectedParams{ServerID: id, DbName: database})
+	} else {
+		err = s.DB.ClearDatabaseDisconnected(ctx, sqlite.ClearDatabaseDisconnectedParams{ServerID: id, DbName: database})
+	}
+	if err != nil {
+		log.Printf("Failed to persist disconnected state for server %d database %q: %v", id, database, err)
+	}
+	mu.Lock()
+	key := dbPoolKey{ServerID: id, Database: database}
+	if disconnected {
+		disconnectedDatabases[key] = true
+	} else {
+		delete(disconnectedDatabases, key)
+	}
+	mu.Unlock()
+}
+
+// loadDisconnectedDatabases reads the persistently stored per-database
+// disconnected flags into the in-memory map so they survive a restart.
+func (s *Server) loadDisconnectedDatabases() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	rows, err := s.DB.ListDisconnectedDatabases(ctx)
+	if err != nil {
+		log.Printf("Failed to load disconnected databases: %v", err)
+		return
+	}
+	mu.Lock()
+	for _, row := range rows {
+		disconnectedDatabases[dbPoolKey{ServerID: row.ServerID, Database: row.DbName}] = true
 	}
 	mu.Unlock()
 }
@@ -418,4 +504,52 @@ func (s *Server) renderModalError(w http.ResponseWriter, r *http.Request, errorM
 			"sslmode":  sslMode,
 		},
 	})
+}
+
+// handleServerReloadConfig runs pg_reload_conf() on the server's maintenance
+// connection, the same one-off admin-SQL shape as session cancel/terminate
+// in activity.go (no DDL framework involvement, no execution preview).
+func (s *Server) handleServerReloadConfig(w http.ResponseWriter, r *http.Request) {
+	pool, _, ok := s.loadServerPool(w, r)
+	if !ok {
+		return
+	}
+
+	if _, err := pool.Exec(r.Context(), "SELECT pg_reload_conf()"); err != nil {
+		log.Printf("Failed to reload configuration: %v", err)
+		http.Error(w, "Failed to reload configuration: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// handleServerCreateRestorePoint runs pg_create_restore_point(name) on the
+// server's maintenance connection. This fails on a replica or when
+// wal_level is "minimal" — a normal Postgres error, surfaced as-is.
+func (s *Server) handleServerCreateRestorePoint(w http.ResponseWriter, r *http.Request) {
+	pool, _, ok := s.loadServerPool(w, r)
+	if !ok {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Error(w, "Restore point name is required", http.StatusBadRequest)
+		return
+	}
+
+	var lsn string
+	err := pool.QueryRow(r.Context(), "SELECT pg_create_restore_point($1)::text", name).Scan(&lsn)
+	if err != nil {
+		log.Printf("Failed to create restore point %q: %v", name, err)
+		http.Error(w, "Failed to create restore point: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	writeJSON(w, map[string]string{"status": "ok", "lsn": lsn})
 }

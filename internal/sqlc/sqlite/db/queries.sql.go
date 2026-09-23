@@ -10,13 +10,36 @@ import (
 	"database/sql"
 )
 
+const clearDatabaseDisconnected = `-- name: ClearDatabaseDisconnected :exec
+DELETE FROM disconnected_database WHERE server_id = ? AND db_name = ?
+`
+
+type ClearDatabaseDisconnectedParams struct {
+	ServerID int64  `json:"server_id"`
+	DbName   string `json:"db_name"`
+}
+
+func (q *Queries) ClearDatabaseDisconnected(ctx context.Context, arg ClearDatabaseDisconnectedParams) error {
+	_, err := q.db.ExecContext(ctx, clearDatabaseDisconnected, arg.ServerID, arg.DbName)
+	return err
+}
+
+const clearDatabaseDisconnectedForServer = `-- name: ClearDatabaseDisconnectedForServer :exec
+DELETE FROM disconnected_database WHERE server_id = ?
+`
+
+func (q *Queries) ClearDatabaseDisconnectedForServer(ctx context.Context, serverID int64) error {
+	_, err := q.db.ExecContext(ctx, clearDatabaseDisconnectedForServer, serverID)
+	return err
+}
+
 const createServer = `-- name: CreateServer :one
 INSERT INTO server (
     user_id, servergroup_id, name, host, port, maintenance_db, username, ssl_mode
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?
 )
-RETURNING id, user_id, servergroup_id, name, host, port, maintenance_db, username, password, role, ssl_mode, comment, discovery_id, hostaddr, db_res, passfile, sslcert, keyfile, rootcert, crlfile, service, bgcolor, fgcolor, connect_timeout, use_ssh_tunnel, ssh_host, ssh_port, ssh_username, ssh_password, ssh_keyfile, shared
+RETURNING id, user_id, servergroup_id, name, host, port, maintenance_db, username, password, role, ssl_mode, comment, discovery_id, hostaddr, db_res, passfile, sslcert, keyfile, rootcert, crlfile, service, bgcolor, fgcolor, connect_timeout, use_ssh_tunnel, ssh_host, ssh_port, ssh_username, ssh_password, ssh_keyfile, shared, disconnected
 `
 
 type CreateServerParams struct {
@@ -74,6 +97,7 @@ func (q *Queries) CreateServer(ctx context.Context, arg CreateServerParams) (Ser
 		&i.SshPassword,
 		&i.SshKeyfile,
 		&i.Shared,
+		&i.Disconnected,
 	)
 	return i, err
 }
@@ -108,7 +132,7 @@ func (q *Queries) GetQueryHistoryByID(ctx context.Context, arg GetQueryHistoryBy
 }
 
 const getServerByID = `-- name: GetServerByID :one
-SELECT id, user_id, servergroup_id, name, host, port, maintenance_db, username, password, role, ssl_mode, comment, discovery_id, hostaddr, db_res, passfile, sslcert, keyfile, rootcert, crlfile, service, bgcolor, fgcolor, connect_timeout, use_ssh_tunnel, ssh_host, ssh_port, ssh_username, ssh_password, ssh_keyfile, shared FROM server
+SELECT id, user_id, servergroup_id, name, host, port, maintenance_db, username, password, role, ssl_mode, comment, discovery_id, hostaddr, db_res, passfile, sslcert, keyfile, rootcert, crlfile, service, bgcolor, fgcolor, connect_timeout, use_ssh_tunnel, ssh_host, ssh_port, ssh_username, ssh_password, ssh_keyfile, shared, disconnected FROM server
 WHERE id = ? AND user_id = ?
 LIMIT 1
 `
@@ -153,6 +177,7 @@ func (q *Queries) GetServerByID(ctx context.Context, arg GetServerByIDParams) (S
 		&i.SshPassword,
 		&i.SshKeyfile,
 		&i.Shared,
+		&i.Disconnected,
 	)
 	return i, err
 }
@@ -258,6 +283,33 @@ func (q *Queries) InsertWorkspaceTab(ctx context.Context, arg InsertWorkspaceTab
 		arg.TabOrder,
 	)
 	return err
+}
+
+const listDisconnectedDatabases = `-- name: ListDisconnectedDatabases :many
+SELECT server_id, db_name FROM disconnected_database
+`
+
+func (q *Queries) ListDisconnectedDatabases(ctx context.Context) ([]DisconnectedDatabase, error) {
+	rows, err := q.db.QueryContext(ctx, listDisconnectedDatabases)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DisconnectedDatabase
+	for rows.Next() {
+		var i DisconnectedDatabase
+		if err := rows.Scan(&i.ServerID, &i.DbName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listQueryHistory = `-- name: ListQueryHistory :many
@@ -457,6 +509,22 @@ type SaveUserWorkspaceParams struct {
 
 func (q *Queries) SaveUserWorkspace(ctx context.Context, arg SaveUserWorkspaceParams) error {
 	_, err := q.db.ExecContext(ctx, saveUserWorkspace, arg.UserID, arg.ActiveTabID, arg.LayoutMetadata)
+	return err
+}
+
+const setDatabaseDisconnected = `-- name: SetDatabaseDisconnected :exec
+INSERT INTO disconnected_database (server_id, db_name)
+VALUES (?, ?)
+ON CONFLICT (server_id, db_name) DO NOTHING
+`
+
+type SetDatabaseDisconnectedParams struct {
+	ServerID int64  `json:"server_id"`
+	DbName   string `json:"db_name"`
+}
+
+func (q *Queries) SetDatabaseDisconnected(ctx context.Context, arg SetDatabaseDisconnectedParams) error {
+	_, err := q.db.ExecContext(ctx, setDatabaseDisconnected, arg.ServerID, arg.DbName)
 	return err
 }
 

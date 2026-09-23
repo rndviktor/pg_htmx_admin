@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+type DisconnectedDatabase struct {
+	ServerID int64  `json:"server_id"`
+	DbName   string `json:"db_name"`
+}
+
 type Process struct {
 	Pid         int64          `json:"pid"`
 	UserID      int64          `json:"user_id"`
@@ -65,6 +70,7 @@ type Server struct {
 	SshPassword    sql.NullString `json:"ssh_password"`
 	SshKeyfile     sql.NullString `json:"ssh_keyfile"`
 	Shared         sql.NullBool   `json:"shared"`
+	Disconnected   bool           `json:"disconnected"`
 }
 
 type Servergroup struct {

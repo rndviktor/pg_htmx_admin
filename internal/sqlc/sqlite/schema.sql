@@ -100,6 +100,13 @@ CREATE TABLE IF NOT EXISTS workspace_tabs (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS disconnected_database (
+    server_id INTEGER NOT NULL,
+    db_name VARCHAR(64) NOT NULL,
+    PRIMARY KEY (server_id, db_name),
+    FOREIGN KEY (server_id) REFERENCES server(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS query_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER REFERENCES user(id) ON DELETE CASCADE,

@@ -44,6 +44,7 @@ func NewServer() (*Server, error) {
 		runningQueries: make(map[string]*runningQuery),
 	}
 	s.loadDisconnectedServers()
+	s.loadDisconnectedDatabases()
 	return s, nil
 }
 
@@ -76,6 +77,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/ddl/{kind}/create", s.handleDDLCreate)
 		r.Post("/api/ddl/{kind}/drop", s.handleDDLDrop)
 		r.Post("/api/ddl/{kind}/alter", s.handleDDLAlter)
+		r.Get("/api/ddl/{kind}/drop-script", s.handleDDLDropScript)
 
 		r.Get("/api/sessions", s.handleSessions)
 		r.Post("/api/sessions/{pid}/cancel", s.handleSessionCancel)
@@ -91,6 +93,8 @@ func (s *Server) Routes() http.Handler {
 			r.Route("/{serverID}", func(r chi.Router) {
 				r.Post("/disconnect", s.handleServerDisconnect)
 				r.Get("/reconnect", s.handleServerReconnect)
+				r.Post("/reload-config", s.handleServerReloadConfig)
+				r.Post("/restore-point", s.handleServerCreateRestorePoint)
 				r.Get("/children", s.handleServerChildren)
 				r.Get("/databases", s.handleServerDatabases)
 				r.Get("/roles", s.handleServerRoles)
@@ -106,6 +110,8 @@ func (s *Server) Routes() http.Handler {
 
 				r.Route("/databases/{dbName}", func(r chi.Router) {
 					r.Get("/children", s.handleDatabaseChildren)
+					r.Post("/disconnect", s.handleDatabaseDisconnect)
+					r.Get("/reconnect", s.handleDatabaseReconnect)
 					r.Get("/properties", s.handleDatabaseProperties)
 					r.Get("/{category}", s.handleDatabaseCategory)
 					r.Get("/monitoring", s.handleMonitoring)
@@ -407,6 +413,56 @@ func (s *Server) handleServerReconnect(w http.ResponseWriter, r *http.Request) {
 	s.renderServerFolders(w, r, id)
 }
 
+// handleDatabaseDisconnect marks a single database as intentionally
+// disconnected: it shows a gray dot, cannot be expanded, and is not
+// re-connected until the user reconnects it. Distinct from disconnecting
+// the whole server.
+func (s *Server) handleDatabaseDisconnect(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseServerID(w, r)
+	if !ok {
+		return
+	}
+	dbName := chi.URLParam(r, "dbName")
+	if dbName == "" {
+		http.Error(w, "Invalid database name", http.StatusBadRequest)
+		return
+	}
+
+	s.setDatabaseDisconnected(id, dbName, true)
+	s.dropDatabasePool(id, dbName)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDatabaseReconnect restores the connection to a (possibly
+// disconnected) database. On success it un-marks it and renders its category
+// folders (delegating to handleDatabaseChildren); on failure it renders the
+// "not available" hint so the user can retry.
+func (s *Server) handleDatabaseReconnect(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseServerID(w, r)
+	if !ok {
+		return
+	}
+	dbName := chi.URLParam(r, "dbName")
+	if dbName == "" {
+		http.Error(w, "Invalid database name", http.StatusBadRequest)
+		return
+	}
+
+	connectCtx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	if _, err := s.getOrCreateDbPool(connectCtx, id, dbName); err != nil {
+		// No longer "disconnected by the user", simply unavailable, so it is
+		// probed again (including on the next application start) instead of
+		// staying gray until somebody disconnects it again.
+		s.setDatabaseDisconnected(id, dbName, false)
+		renderTree(w, nil, `Database is not available. Right-click it and choose "Try to reconnect".`)
+		return
+	}
+
+	s.setDatabaseDisconnected(id, dbName, false)
+	s.handleDatabaseChildren(w, r)
+}
+
 // renderServerUnavailable renders the hint shown inside a server node when it
 // is disconnected or its connection is unavailable: the server cannot be
 // expanded and must be reconnected via the node's Refresh action.
@@ -478,6 +534,21 @@ func (s *Server) handleServerDatabases(w http.ResponseWriter, r *http.Request) {
 
 	nodes := make([]treeNode, 0, len(names))
 	for _, name := range names {
+		// Gray = deliberately disconnected by the user. Green/red are only
+		// shown once a database has actually been opened this session (its
+		// pool is cached): peeking never dials, so listing many databases
+		// never pays a per-database connection cost up front.
+		state := ""
+		switch {
+		case s.isDatabaseDisconnected(id, name):
+			state = "gray"
+		case s.peekCachedDbPool(id, name) != nil:
+			if s.peekCachedDbPool(id, name).Ping(r.Context()) == nil {
+				state = "on"
+			} else {
+				state = "off"
+			}
+		}
 		nodes = append(nodes, treeNode{
 			ID:       fmt.Sprintf("database-%d-%s", id, name),
 			Icon:     "🗄️",
@@ -486,6 +557,7 @@ func (s *Server) handleServerDatabases(w http.ResponseWriter, r *http.Request) {
 			Menu:     "database",
 			DataName: name,
 			PropsURL: fmt.Sprintf("/api/servers/%d/databases/%s/properties", id, url.PathEscape(name)),
+			State:    state,
 		})
 	}
 
@@ -493,8 +565,19 @@ func (s *Server) handleServerDatabases(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDatabaseChildren renders the category folders shown when a database
-// node is expanded in the tree.
+// node is expanded in the tree. A database deliberately disconnected by the
+// user renders nothing, mirroring handleServerChildren.
 func (s *Server) handleDatabaseChildren(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseServerID(w, r)
+	if !ok {
+		return
+	}
+	dbName := chi.URLParam(r, "dbName")
+	if s.isDatabaseDisconnected(id, dbName) {
+		renderTree(w, nil, "")
+		return
+	}
+
 	pool, id, dbName, ok := s.loadDatabasePool(w, r)
 	if !ok {
 		return

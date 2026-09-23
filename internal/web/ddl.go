@@ -1830,6 +1830,53 @@ func (s *Server) handleDDLDrop(w http.ResponseWriter, r *http.Request) {
 	RenderPartial(w, "ddl_success.html", map[string]any{"Message": tag})
 }
 
+// handleDDLDropScript generates the same DROP SQL handleDDLDrop would run,
+// but only returns it as JSON {query: "..."} for a read-only script tab —
+// it never executes anything, so no live pool is needed. Still gated on the
+// server's connection state like handleDDLDrop: no drop-related action,
+// including generating a script for one, is offered while a server is
+// disconnected.
+func (s *Server) handleDDLDropScript(w http.ResponseWriter, r *http.Request) {
+	kind := chi.URLParam(r, "kind")
+	dk, ok := ddlKinds[kind]
+	if !ok || dk.BuildDrop == nil {
+		log.Printf("DDL drop script: unknown or undroppable kind %q on %s", kind, r.URL.Path)
+		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
+		return
+	}
+
+	sid, err := strconv.ParseInt(r.URL.Query().Get("server_id"), 10, 64)
+	if err != nil || sid < 1 {
+		log.Printf("DDL drop script %s: missing or invalid server_id %q", kind, r.URL.Query().Get("server_id"))
+		http.Error(w, "Missing or invalid server id", http.StatusBadRequest)
+		return
+	}
+	if s.isDisconnected(sid) {
+		http.Error(w, "Server is disconnected. Reconnect it first.", http.StatusConflict)
+		return
+	}
+
+	v := map[string]string{
+		"schema": r.URL.Query().Get("schema"),
+		"table":  r.URL.Query().Get("table"),
+		"name":   strings.TrimSpace(r.URL.Query().Get("name")),
+	}
+	if v["name"] == "" {
+		http.Error(w, "Object name is required", http.StatusBadRequest)
+		return
+	}
+
+	sqlStr, err := dk.BuildDrop(v)
+	if err != nil {
+		log.Printf("DDL drop script %s: build error: %v", kind, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"query": sqlStr})
+}
+
 // runOnTarget executes create/drop DDL on the pool selected by the kind's
 // scope, refreshing the target database connection as needed.
 func (s *Server) runOnTarget(ctx context.Context, kind string, sid int64, db string, stmts []string) (string, error) {

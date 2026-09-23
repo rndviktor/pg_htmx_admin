@@ -21,7 +21,12 @@ that is missing, ordered by priority.
   (connections, transactions, cache hit ratio, replication lag, DML activity)
   fed by polling plus an SSE stream (`internal/web/monitoring.go`).
 - **Server administration**: sessions list with cancel/terminate, locks list,
-  prepared transactions list (`internal/web/activity.go`).
+  prepared transactions list (`internal/web/activity.go`). Per-server and
+  per-database Connect/Disconnect/"Try to reconnect" (the database-level flag
+  persists across restarts, mirroring the server-level one), Reload
+  Configuration (`pg_reload_conf()`), and named restore points
+  (`pg_create_restore_point()`), all from the tree's right-click menu
+  (`internal/web/server_manager.go`, `static/js/context-menu.js`).
 - **Object properties panels**: tabbed General / Columns / Constraints /
   Indexes / Privileges / Statistics / Dependencies / SQL detail for tables,
   views, materialized views, sequences, functions, indexes, triggers and
@@ -37,7 +42,15 @@ that is missing, ordered by priority.
   also wired up for database, tablespace, function and procedure (role,
   extension and publication are not — Postgres has no ACL/GRANT concept for
   those three object kinds) (`internal/web/properties.go`,
-  `templates/partials/properties_panel.html`).
+  `templates/partials/properties_panel.html`). Verified live against a real
+  server: all of the above render correctly, including empty-state folders
+  and a cast whose type name contains a space. One pre-existing display quirk
+  (not introduced by this work): the schema-level Types folder's query
+  matches `pg_type.typtype IN ('c','e','r')`, which also matches every
+  table's/view's own implicit row type, so "Types" often just lists ordinary
+  tables again rather than only user-defined `CREATE TYPE` composites/enums/
+  ranges — clicking one still opens a correct (if misleadingly-labeled)
+  Composite panel showing that table's columns.
 - **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
   for 13 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index and
@@ -50,7 +63,12 @@ that is missing, ordered by priority.
   extensions (no owner/rename — Postgres has no such `ALTER EXTENSION` form);
   rename for indexes; and enable/disable + rename for triggers. The client
   never sends raw SQL; a successful create/drop/alter refreshes the tree in
-  place (`internal/web/ddl.go`).
+  place (`internal/web/ddl.go`). Drop is now wired for every one of the 13
+  kinds including tables (previously missing only from the context menu, the
+  server-side builder already existed). **DROP Script**: any droppable kind
+  can also generate its DROP SQL into a read-only script tab without running
+  it (`GET /api/ddl/{kind}/drop-script`), blocked the same way the run-it
+  Drop dialog already was when the object's server is disconnected.
 - **Script generation**: SELECT / CREATE / INSERT / DELETE templates for tables;
   SELECT / CREATE / INSERT for views; SELECT for materialized views
   (`internal/web/script.go`).
@@ -74,24 +92,16 @@ that is missing, ordered by priority.
    Table and `ALTER TABLE` column DDL — add/drop/alter column), rules, RLS
    policies, table partitioning, and richer index/trigger *create* options
    (constraint options, `USING` storage parameters).
-2. **Remaining context-menu gaps** — Disconnect / Connect / Try to reconnect,
-   Create (database/role/tablespace/table), Drop (13 kinds, with CASCADE/FORCE),
-   Alter (13 kinds) and Properties/Scripts/Query Tool are all present, but
-   still missing: DROP SCRIPT (generate without executing), a Drop action for
-   tables specifically (the builder exists in `internal/web/ddl.go` but isn't
-   wired into `static/js/context-menu.js`'s `DROP_ITEMS`), per-database
-   Connect/Disconnect, Reload configuration, and named restore points.
-
 ### P2 — Data editing + maintenance
 
-3. **View/Edit Data tool** — editable grid for tables and views with
+2. **View/Edit Data tool** — editable grid for tables and views with
    insert/update/delete, in-cell editing, sorting, filtering, pagination and
    CSV copy/export. The current result grid renders text only
    (`internal/web/handlers.go`, `templates/partials/query_result.html`).
-4. **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
+3. **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
    **Maintenance dialog** (VACUUM, ANALYZE, REINDEX, CLUSTER); **Storage
    Manager** for server-side backup files.
-5. **Query tool power features** — transaction control (BEGIN / COMMIT /
+4. **Query tool power features** — transaction control (BEGIN / COMMIT /
    ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
    text in `internal/web/handlers.go`), multiple result sets, execute a
    selected statement, query timings, download results as CSV, server-side
@@ -103,35 +113,35 @@ that is missing, ordered by priority.
 
 ### P3 — Management depth
 
-6. **Role & privilege management** plus a **Grant Wizard** (grant/revoke
+5. **Role & privilege management** plus a **Grant Wizard** (grant/revoke
    privileges across objects). Roles can be created, altered (login, superuser,
    createdb/createrole, inherit, replication, connlimit, valid-until,
    password) and dropped, but there is no role-membership editor and no
    privilege-editing UI (properties only *display* ACLs).
-7. **Import/Export data dialog** (bulk CSV load/unload).
-8. **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
+6. **Import/Export data dialog** (bulk CSV load/unload).
+7. **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
    session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
    for a single database.
 
 ### P4 — Developer tools
 
-9. **Global object search** (pgAdmin's `Search objects`).
-10. **Schema Diff** — compare and synchronize two databases or schemas and
+8. **Global object search** (pgAdmin's `Search objects`).
+9. **Schema Diff** — compare and synchronize two databases or schemas and
     generate migration scripts.
-11. **ERD tool** and **PSQL terminal tool**.
-12. **Function Debugger** (pldebugger integration).
+10. **ERD tool** and **PSQL terminal tool**.
+11. **Function Debugger** (pldebugger integration).
 
 ### P5 — Platform, security and coverage
 
-13. **Real authentication & user management** — multiuser accounts, admin
+12. **Real authentication & user management** — multiuser accounts, admin
     roles, master password / encrypted stored passwords (currently stored in
     plaintext, `internal/web/server_manager.go`), 2FA, LDAP/OAuth/webserver
     auth sources; the session signing key is a hardcoded placeholder
     (`internal/web/auth.go`).
-14. **Fuller object coverage** — foreign tables, user mappings, collations,
+13. **Fuller object coverage** — foreign tables, user mappings, collations,
     FTS configurations/dictionaries/parsers/templates, operators and operator
     classes/families, statistics objects, aggregates.
-15. **Preferences UI, themes, keyboard shortcuts, drag-and-drop of objects into
+14. **Preferences UI, themes, keyboard shortcuts, drag-and-drop of objects into
     the query editor, localization.**
 
 ## Suggested starting points
@@ -142,4 +152,4 @@ The two highest-leverage projects that build most naturally on the existing
 - **#1: `ALTER TABLE` column DDL** (add/drop/alter column, foreign key /
   exclusion constraints, generated columns) to round out table ALTER beyond
   owner/schema/rename, or
-- **#3: View/Edit Data** editable grid.
+- **#2: View/Edit Data** editable grid.

@@ -85,3 +85,17 @@ LIMIT 1;
 -- name: RecordQueryHistory :exec
 INSERT INTO query_history (user_id, tab_id, connection_id, query_text, executed_at, duration_ms, status, rows_affected)
 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?);
+
+-- name: SetDatabaseDisconnected :exec
+INSERT INTO disconnected_database (server_id, db_name)
+VALUES (?, ?)
+ON CONFLICT (server_id, db_name) DO NOTHING;
+
+-- name: ClearDatabaseDisconnected :exec
+DELETE FROM disconnected_database WHERE server_id = ? AND db_name = ?;
+
+-- name: ClearDatabaseDisconnectedForServer :exec
+DELETE FROM disconnected_database WHERE server_id = ?;
+
+-- name: ListDisconnectedDatabases :many
+SELECT server_id, db_name FROM disconnected_database;

@@ -145,6 +145,82 @@ function initContextMenu() {
             }
         }
 
+        // Server-wide admin actions: reload the config file (no confirmation
+        // needed beyond the usual one) and create a named restore point
+        // (name collected via a bare prompt — the only lightweight,
+        // no-modal precedent for a single text field in this app).
+        if (currentMenuKind === "server") {
+            menu.appendChild(divider());
+
+            const reloadItem = menuItem("Reload Configuration", false);
+            reloadItem.addEventListener("click", () => {
+                const serverID = parseServerDBURL(currentTableURL).serverID;
+                if (!serverID || !confirm("Reload configuration on this server?")) return;
+                fetch("/api/servers/" + serverID + "/reload-config", { method: "POST" })
+                    .then((r) => { if (!r.ok) throw r; return r.json(); })
+                    .then(() => { if (window.showToast) window.showToast("Configuration reloaded.", "success"); })
+                    .catch(async (httpErr) => {
+                        let detail = httpErr && typeof httpErr.text === "function" ? await httpErr.text().catch(() => "") : "";
+                        if (window.showToast) window.showToast("Reload failed" + (detail ? ": " + detail : "."), "error");
+                    });
+            });
+            menu.appendChild(reloadItem);
+
+            const restoreItem = menuItem("Create Restore Point", false);
+            restoreItem.addEventListener("click", () => {
+                const serverID = parseServerDBURL(currentTableURL).serverID;
+                const name = window.prompt("Restore point name:");
+                if (!serverID || !name) return;
+                fetch("/api/servers/" + serverID + "/restore-point", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: "name=" + encodeURIComponent(name),
+                })
+                    .then((r) => { if (!r.ok) throw r; return r.json(); })
+                    .then((data) => { if (window.showToast) window.showToast("Restore point created at " + data.lsn + ".", "success"); })
+                    .catch(async (httpErr) => {
+                        let detail = httpErr && typeof httpErr.text === "function" ? await httpErr.text().catch(() => "") : "";
+                        if (window.showToast) window.showToast("Create restore point failed" + (detail ? ": " + detail : "."), "error");
+                    });
+            });
+            menu.appendChild(restoreItem);
+        }
+
+        // Database nodes react to their state exactly like server nodes:
+        // connected (green) offers "Disconnect", disconnected-by-user (gray)
+        // offers "Connect", unavailable (red) offers "Try to reconnect".
+        // Distinct from the server's own connect/disconnect above.
+        if (currentMenuKind === "database") {
+            menu.appendChild(divider());
+
+            const state = el.getAttribute("data-tree-state");
+            const dbConn = parseServerDBURL(currentTableURL || currentPropsURL);
+
+            if (state === "on") {
+                const discItem = menuItem("Disconnect", true);
+                discItem.addEventListener("click", () => {
+                    const target = btn && btn.getAttribute("hx-target");
+                    if (target) {
+                        const container = document.querySelector(target);
+                        if (container) container.innerHTML = "";
+                    }
+                    setServerDot(el, "gray");
+                    if (dbConn.serverID && dbConn.dbName) {
+                        fetch("/api/servers/" + dbConn.serverID + "/databases/" + dbConn.dbName + "/disconnect", { method: "POST" })
+                            .then((r) => { if (!r.ok) throw r; })
+                            .catch(() => {
+                                if (window.showToast) window.showToast("Failed to disconnect the database.", "error");
+                            });
+                    }
+                });
+                menu.appendChild(discItem);
+            } else {
+                const item = menuItem(state === "off" ? "Try to reconnect" : "Connect", false);
+                item.addEventListener("click", () => refreshTreeNode(el));
+                menu.appendChild(item);
+            }
+        }
+
         // Servers can create cluster-level objects (database, role,
         // tablespace). All generate DDL and run it on the maintenance db.
         if (currentMenuKind === "server") {
@@ -186,7 +262,7 @@ function initContextMenu() {
         // plus every Phase A database-scoped leaf/expander kind.
         const DROP_ITEMS = {
             database: "Drop Database", role: "Drop Role", tablespace: "Drop Tablespace",
-            schema: "Drop Schema", view: "Drop View", "materialized-view": "Drop Materialized View",
+            schema: "Drop Schema", table: "Drop Table", view: "Drop View", "materialized-view": "Drop Materialized View",
             sequence: "Drop Sequence", function: "Drop Function", procedure: "Drop Procedure",
             extension: "Drop Extension", publication: "Drop Publication",
             index: "Drop Index", trigger: "Drop Trigger",
@@ -204,6 +280,16 @@ function initContextMenu() {
                 openDropDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
             });
             menu.appendChild(dropItem);
+
+            // "DROP Script": generates the same DROP SQL into a read-only
+            // script tab without running it, for every droppable kind at once.
+            const dropScriptItem = menuItem("DROP Script", false);
+            dropScriptItem.addEventListener("click", () => {
+                const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
+                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
+                openDropScriptTab(kind, nodeURL, name);
+            });
+            menu.appendChild(dropScriptItem);
         }
 
         // Edit-in-place via ALTER: every DDL-managed kind opens a pre-filled
