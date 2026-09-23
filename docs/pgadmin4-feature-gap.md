@@ -22,8 +22,20 @@ that is missing, ordered by priority.
   fed by polling plus an SSE stream (`internal/web/monitoring.go`).
 - **Server administration**: sessions list with cancel/terminate, locks list,
   prepared transactions list (`internal/web/activity.go`).
+- **Object properties panels**: tabbed General / Columns / Constraints /
+  Indexes / Privileges / Statistics / Dependencies / SQL detail for tables,
+  views, materialized views, sequences, functions, indexes, triggers and
+  schemas — column types/defaults/nullability, constraints, ownership,
+  privileges, comments, dependencies and statistics
+  (`internal/web/properties.go`, `templates/partials/properties_panel.html`).
+- **DDL dialogs (Create / Drop)**: form-based generate-then-preview-then-run
+  for 13 object kinds — database, role, tablespace, schema, sequence, view,
+  materialized view, function, procedure, extension, publication, index and
+  trigger. The client never sends raw SQL; a successful create/drop refreshes
+  the tree in place (`internal/web/ddl.go`).
 - **Script generation**: SELECT / CREATE / INSERT / DELETE templates for tables;
-  SELECT / CREATE / INSERT for views (`internal/web/script.go`).
+  SELECT / CREATE / INSERT for views; SELECT for materialized views
+  (`internal/web/script.go`).
 - **Workspace**: save and restore tab layout from SQLite; single-user cookie
   auth; server registration modal.
 
@@ -31,21 +43,25 @@ that is missing, ordered by priority.
 
 ### P1 — Core object management (biggest gap)
 
-1. **Object properties panels** — view full metadata for any object: columns
-   with types/defaults/nullability, constraints, indexes, ownership,
-   privileges, comments, dependencies and statistics tabs. Today the tree only
-   shows object *names*, never their details.
-2. **Create / Alter / Drop of objects** — pgAdmin's centerpiece. Form dialogs
-   that generate DDL for databases, schemas, tables (columns, primary
-   key/foreign key/unique/check/exclusion constraints, indexes, triggers,
-   rules, RLS policies, partitions), views, materialized views, sequences,
-   functions, procedures, roles, tablespaces, extensions, publications. Today
-   everything is read-only and scripts are only templates pasted into the
-   editor.
-3. **Full server/database/object context-menu actions** — DROP / DROP CASCADE,
-   DROP script, CREATE script, Connect/Disconnect database, Reload
-   configuration, add named restore point. Currently the tree's only server
-   action is "Try to reconnect" (`internal/web/server_manager.go`).
+1. **Alter objects and full table DDL** — there is no `ALTER` support for any
+   object, and **Create Table is not wired**: the Tables folder carries a
+   `create-table` menu (`internal/web/tree.go:234`) but no matching DDL kind
+   and no `createLabel` entry, so right-clicking it offers nothing
+   (`static/js/context-menu.js:37-45`). There is also no single create dialog
+   covering columns with primary key/foreign key/unique/check/exclusion
+   constraints, indexes, triggers, rules, RLS policies or partitions.
+2. **Properties coverage is partial** — no properties panel at all for
+   databases, roles, tablespaces, procedures, extensions and publications, nor
+   for the plain leaves (columns, constraints, RLS policies, rules, types,
+   domains, casts, catalogs, event triggers, foreign data wrappers, languages,
+   subscriptions). Tabs are also partial: Constraints only on tables;
+   Privileges only on table/view/materialized-view/sequence/schema;
+   Statistics and Dependencies only on table/view/materialized-view.
+3. **Remaining context-menu gaps** — Disconnect / Connect / Try to reconnect,
+   Create (database/role/tablespace), Drop (13 kinds, with CASCADE/FORCE) and
+   Properties/Scripts/Query Tool are all present, but still missing: DROP
+   SCRIPT (generate without executing), per-database Connect/Disconnect,
+   Reload configuration, and named restore points.
 
 ### P2 — Data editing + maintenance
 
@@ -60,13 +76,18 @@ that is missing, ordered by priority.
    ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
    text in `internal/web/handlers.go`), multiple result sets, execute a
    selected statement, query timings, download results as CSV, server-side
-   result cursors.
+   result cursors. Minor query-tool stubs: the Notifications tab is never
+   written to (`templates/partials/script_tab_panel.html:227-248`), the
+   Scratch Pad is an inert textarea (:199-206), history always records
+   `"success"` (`internal/web/history.go:152`), and a table's **UPDATE Script**
+   opens an empty tab (`static/js/tabs.js:761-775`).
 
 ### P3 — Management depth
 
 7. **Role & privilege management** plus a **Grant Wizard** (grant/revoke
-   privileges across objects). pgAdmin's security model is central; this app
-   only lists roles.
+   privileges across objects). Roles can be created and dropped but never
+   altered, and there is no privilege-editing UI (properties only *display*
+   ACLs).
 8. **Import/Export data dialog** (bulk CSV load/unload).
 9. **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
    session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
@@ -98,6 +119,6 @@ that is missing, ordered by priority.
 The two highest-leverage projects that build most naturally on the existing
 `tree.go` / sqlc structure are:
 
-- **#1 + #2: object properties panels and DDL CRUD** (tables, schemas,
-  databases and roles first), or
+- **#1 + #2: table DDL dialog and `ALTER` support** (columns with constraints,
+  plus edit-in-place for schemas, databases and roles first), or
 - **#4: View/Edit Data** editable grid.
