@@ -120,16 +120,18 @@ function refreshTreeNode(el) {
         if (c.childElementCount > 0) expanded.push(c.id);
     });
 
-    // Server nodes refresh by reconnecting: /reconnect returns the folders on
-    // success and the "not available" hint when the connection cannot be made.
+    // Server and database nodes refresh by reconnecting: /reconnect returns
+    // the folders on success and the "not available" hint when the
+    // connection cannot be made. Any other node just re-fetches its children.
     const kind = el.getAttribute("data-tree-menu") || "";
+    const reconnects = kind === "server" || kind === "database";
     let url = btn.getAttribute("hx-get");
-    if (kind === "server") url = url.replace(/\/children$/, "/reconnect");
+    if (reconnects) url = url.replace(/\/children$/, "/reconnect");
 
     return fetchInto(container, url).then((ok) => {
-        // A reconnected server turns its dot green; a failed attempt leaves it
+        // A reconnected node turns its dot green; a failed attempt leaves it
         // red (unavailable, and probed again at the next application start).
-        if (kind === "server" && ok) {
+        if (reconnects && ok) {
             setServerDot(el, container.querySelector("ul button[hx-get]") ? "on" : "off");
         }
         return ok ? expandRanges(expanded).then(() => true) : false;
