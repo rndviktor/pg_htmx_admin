@@ -28,11 +28,14 @@ that is missing, ordered by priority.
   schemas — column types/defaults/nullability, constraints, ownership,
   privileges, comments, dependencies and statistics
   (`internal/web/properties.go`, `templates/partials/properties_panel.html`).
-- **DDL dialogs (Create / Drop)**: form-based generate-then-preview-then-run
+- **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
   for 13 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index and
-  trigger. The client never sends raw SQL; a successful create/drop refreshes
-  the tree in place (`internal/web/ddl.go`).
+  trigger — plus a Create Table dialog with columns (name, type, nullability,
+  default, primary key / unique keys) and a CHECK constraint, and pre-filled
+  `ALTER` dialogs for database, role and schema. The client never sends raw
+  SQL; a successful create/drop/alter refreshes the tree in place
+  (`internal/web/ddl.go`).
 - **Script generation**: SELECT / CREATE / INSERT / DELETE templates for tables;
   SELECT / CREATE / INSERT for views; SELECT for materialized views
   (`internal/web/script.go`).
@@ -43,13 +46,16 @@ that is missing, ordered by priority.
 
 ### P1 — Core object management (biggest gap)
 
-1. **Alter objects and full table DDL** — there is no `ALTER` support for any
-   object, and **Create Table is not wired**: the Tables folder carries a
-   `create-table` menu (`internal/web/tree.go:234`) but no matching DDL kind
-   and no `createLabel` entry, so right-clicking it offers nothing
-   (`static/js/context-menu.js:37-45`). There is also no single create dialog
-   covering columns with primary key/foreign key/unique/check/exclusion
-   constraints, indexes, triggers, rules, RLS policies or partitions.
+1. **Full table DDL and broader ALTER** — **Create Table is now wired**: the
+   Tables folder (`internal/web/tree.go:234`) opens a Create Table dialog with
+   per-column name, type, nullability, default and primary key / unique keys
+   plus a CHECK constraint (`templates/partials/ddl_table_modal.html`).
+   **ALTER exists for the first three objects**: database, role and schema open
+   pre-filled edit-in-place dialogs (rename, owner, connection limits,
+   privilege/login flags, valid-until, ...). Still missing: ALTER for the other
+   DDL kinds, foreign key / exclusion constraints and generated columns, and
+   create dialogs for indexes/triggers with constraint options, rules, RLS
+   policies and table partitioning.
 2. **Properties coverage is partial** — no properties panel at all for
    databases, roles, tablespaces, procedures, extensions and publications, nor
    for the plain leaves (columns, constraints, RLS policies, rules, types,
@@ -58,10 +64,11 @@ that is missing, ordered by priority.
    Privileges only on table/view/materialized-view/sequence/schema;
    Statistics and Dependencies only on table/view/materialized-view.
 3. **Remaining context-menu gaps** — Disconnect / Connect / Try to reconnect,
-   Create (database/role/tablespace), Drop (13 kinds, with CASCADE/FORCE) and
-   Properties/Scripts/Query Tool are all present, but still missing: DROP
-   SCRIPT (generate without executing), per-database Connect/Disconnect,
-   Reload configuration, and named restore points.
+   Create (database/role/tablespace/table), Drop (13 kinds, with CASCADE/FORCE),
+   Alter (database/role/schema) and Properties/Scripts/Query Tool are all
+   present, but still missing: DROP SCRIPT (generate without executing),
+   per-database Connect/Disconnect, Reload configuration, and named restore
+   points.
 
 ### P2 — Data editing + maintenance
 
@@ -85,9 +92,10 @@ that is missing, ordered by priority.
 ### P3 — Management depth
 
 7. **Role & privilege management** plus a **Grant Wizard** (grant/revoke
-   privileges across objects). Roles can be created and dropped but never
-   altered, and there is no privilege-editing UI (properties only *display*
-   ACLs).
+   privileges across objects). Roles can be created, altered (login, superuser,
+   createdb/createrole, inherit, replication, connlimit, valid-until,
+   password) and dropped, but there is no role-membership editor and no
+   privilege-editing UI (properties only *display* ACLs).
 8. **Import/Export data dialog** (bulk CSV load/unload).
 9. **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
    session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
