@@ -1,7 +1,7 @@
 # Coding Style & Behavioral Guidelines
 
 ## Style Requirements
-- Follow [Language/Framework] idiomatic patterns.
+- Follow Golang, Javascript and HTMX idiomatic patterns.
 - Keep functions small and modular.
 
 ## Destructive Actions & Refactoring Safety
