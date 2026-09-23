@@ -107,7 +107,10 @@ function restoreWorkspace() {
                 '.tab-btn[data-tab-id="' + state.active_tab_id + '"]');
             switchTab(target ? state.active_tab_id : TAB_DASHBOARD);
         })
-        .catch(() => switchTab(TAB_DASHBOARD))
+        .catch(() => {
+            if (window.showToast) window.showToast("Could not restore your previous session.", "info");
+            switchTab(TAB_DASHBOARD);
+        })
         .finally(() => { restoringWorkspace = false; });
 }
 

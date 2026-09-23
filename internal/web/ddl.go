@@ -126,6 +126,166 @@ func renderCreateDDL(kind string, form url.Values) (string, error) {
 	return k.BuildCreate(v)
 }
 
+// fullCreateStatement returns def unchanged when it already starts with a
+// complete CREATE <object> statement (e.g. a script pasted from the SQL
+// editor), and an empty string otherwise. This lets the view/matview dialogs
+// accept a full statement instead of only a bare SELECT body.
+func fullCreateStatement(def, object string) string {
+	lower := strings.ToLower(strings.TrimSpace(def))
+	for _, prefix := range []string{
+		"create " + object + " ",
+		"create or replace " + object + " ",
+		"create temp " + object + " ",
+		"create temporary " + object + " ",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(def)
+		}
+	}
+	return ""
+}
+
+// ensureSemicolon returns s with exactly one trailing semicolon.
+func ensureSemicolon(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimRight(s, ";")
+	return s + ";"
+}
+
+// stripTrailingStatement removes trailing separators/whitespace so a wrapped
+// definition can be safely embedded as a single statement.
+func stripTrailingStatement(s string) string {
+	return strings.TrimRight(strings.TrimSpace(s), ";")
+}
+
+// splitStatements splits a SQL script on top-level semicolons, honouring
+// string literals, quoted identifiers, line/block comments and dollar-quoted
+// bodies (including $tag$ ... $tag$). It powers multi-statement DDL scripts;
+// pgx executes each returned statement individually.
+func splitStatements(sql string) []string {
+	var stmts []string
+	var cur strings.Builder
+	const (
+		stNormal = iota
+		stSingle
+		stDouble
+		stLine
+		stBlock
+		stDollar
+	)
+	state := stNormal
+	dollarTag := ""
+
+	write := func(s string) { cur.WriteString(s) }
+
+	flush := func() {
+		if s := strings.TrimSpace(cur.String()); s != "" {
+			stmts = append(stmts, s)
+		}
+		cur.Reset()
+	}
+
+	i := 0
+	n := len(sql)
+	for i < n {
+		c := sql[i]
+		switch state {
+		case stNormal:
+			switch {
+			case c == '\'':
+				state = stSingle
+				write(string(c))
+			case c == '"':
+				state = stDouble
+				write(string(c))
+			case c == '-' && i+1 < n && sql[i+1] == '-':
+				state = stLine
+				write("--")
+				i++
+			case c == '/' && i+1 < n && sql[i+1] == '*':
+				state = stBlock
+				write("/*")
+				i++
+			case c == '$' && (i == 0 || !isSQLIdentByte(sql[i-1])):
+				if tag := dollarQuoteTag(sql[i:]); tag != "" {
+					dollarTag = tag
+					state = stDollar
+					write(tag)
+					i += len(tag) - 1
+				} else {
+					write(string(c))
+				}
+			case c == ';':
+				flush()
+			default:
+				write(string(c))
+			}
+		case stSingle:
+			write(string(c))
+			if c == '\'' {
+				state = stNormal
+			}
+		case stDouble:
+			write(string(c))
+			if c == '"' {
+				state = stNormal
+			}
+		case stLine:
+			write(string(c))
+			if c == '\n' {
+				state = stNormal
+			}
+		case stBlock:
+			write(string(c))
+			if c == '*' && i+1 < n && sql[i+1] == '/' {
+				write("/")
+				i++
+				state = stNormal
+			}
+		case stDollar:
+			if strings.HasPrefix(sql[i:], dollarTag) {
+				write(dollarTag)
+				i += len(dollarTag) - 1
+				state = stNormal
+			} else {
+				write(string(c))
+			}
+		}
+		i++
+	}
+	flush()
+	return stmts
+}
+
+// isSQLIdentByte reports whether c can appear in a SQL identifier or a
+// dollar-quote tag.
+func isSQLIdentByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+}
+
+// dollarQuoteTag detects a dollar-quote delimiter ($$ or $tag$) at the start
+// of s, returning the full delimiter if present.
+func dollarQuoteTag(s string) string {
+	if len(s) < 2 || s[0] != '$' {
+		return ""
+	}
+	if s[1] == '$' {
+		return "$$"
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] == '$' && i > 1 {
+			return s[:i+1]
+		}
+		if !isSQLIdentByte(s[i]) {
+			return ""
+		}
+	}
+	return ""
+}
+
 func buildCreateDatabase(v map[string]string) (string, error) {
 	name := strings.TrimSpace(v["name"])
 	if name == "" {
@@ -337,6 +497,10 @@ func buildCreateView(v map[string]string) (string, error) {
 		return "", errRequired("View definition")
 	}
 
+	if full := fullCreateStatement(definition, "view"); full != "" {
+		return ensureSemicolon(full), nil
+	}
+
 	var sb strings.Builder
 	sb.WriteString("CREATE OR REPLACE VIEW ")
 	sb.WriteString(qualIdent(v["schema"], name))
@@ -344,7 +508,7 @@ func buildCreateView(v map[string]string) (string, error) {
 		sb.WriteString("\n(\n    " + cols + "\n)")
 	}
 	sb.WriteString("\nAS\n")
-	sb.WriteString(definition)
+	sb.WriteString(stripTrailingStatement(definition))
 	sb.WriteString(";\n")
 	return sb.String(), nil
 }
@@ -367,11 +531,15 @@ func buildCreateMatView(v map[string]string) (string, error) {
 		return "", errRequired("Materialized view definition")
 	}
 
+	if full := fullCreateStatement(definition, "materialized view"); full != "" {
+		return ensureSemicolon(full), nil
+	}
+
 	var sb strings.Builder
 	sb.WriteString("CREATE MATERIALIZED VIEW ")
 	sb.WriteString(qualIdent(v["schema"], name))
 	sb.WriteString("\nAS\n")
-	sb.WriteString(definition)
+	sb.WriteString(stripTrailingStatement(definition))
 	sb.WriteString("\nWITH DATA;\n")
 	return sb.String(), nil
 }
@@ -844,6 +1012,7 @@ func (s *Server) refreshDDLTree(w http.ResponseWriter, folderID string) {
 func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 	kind := chi.URLParam(r, "kind")
 	if _, ok := ddlKinds[kind]; !ok {
+		log.Printf("DDL modal: unknown kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
 		return
 	}
@@ -933,10 +1102,12 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDDLPreview(w http.ResponseWriter, r *http.Request) {
 	kind := chi.URLParam(r, "kind")
 	if _, ok := ddlKinds[kind]; !ok {
+		log.Printf("DDL preview: unknown kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
+		log.Printf("DDL preview: invalid form data: %v", err)
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
@@ -952,22 +1123,24 @@ func (s *Server) handleDDLPreview(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDDLCreate(w http.ResponseWriter, r *http.Request) {
 	kind := chi.URLParam(r, "kind")
 	if _, ok := ddlKinds[kind]; !ok {
+		log.Printf("DDL create: unknown kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
+		log.Printf("DDL create: invalid form data: %v", err)
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
 
 	sid, err := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
 	if err != nil || sid < 1 {
-		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("DDL create %s: missing or invalid server_id %q", kind, r.FormValue("server_id"))
 		s.renderDDLModal(w, ddlModalData{
-			Partial:  "ddl_" + kind + "_modal.html",
-			Kind:     kind,
-			Values:   formValues(r.Form),
-			Error:    "Missing or invalid server id.",
+			Partial: "ddl_" + kind + "_modal.html",
+			Kind:    kind,
+			Values:  formValues(r.Form),
+			Error:   "Missing or invalid server id.",
 		})
 		return
 	}
@@ -976,7 +1149,7 @@ func (s *Server) handleDDLCreate(w http.ResponseWriter, r *http.Request) {
 	schema := r.FormValue("schema")
 	table := r.FormValue("table")
 	if s.isDisconnected(sid) {
-		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("DDL create %s: server %d is disconnected", kind, sid)
 		s.renderDDLModal(w, ddlModalData{
 			Partial:  "ddl_" + kind + "_modal.html",
 			Kind:     kind,
@@ -1005,8 +1178,7 @@ func (s *Server) handleDDLCreate(w http.ResponseWriter, r *http.Request) {
 		dd, _ = s.ddlDropdowns(ctx, kind, pool, schema, table)
 	}
 
-	rerender := func(errMsg string, status int) {
-		w.WriteHeader(status)
+	rerender := func(errMsg string) {
 		s.renderDDLModal(w, ddlModalData{
 			Partial:   "ddl_" + kind + "_modal.html",
 			Kind:      kind,
@@ -1022,20 +1194,22 @@ func (s *Server) handleDDLCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if perr != nil {
-		rerender("Cannot reach the target database: "+perr.Error(), http.StatusBadRequest)
+		log.Printf("DDL create %s: cannot reach target database: %v", kind, perr)
+		rerender("Cannot reach the target database: " + perr.Error())
 		return
 	}
 
 	sqlStr, err := renderCreateDDL(kind, r.Form)
 	if err != nil {
-		rerender(err.Error(), http.StatusBadRequest)
+		log.Printf("DDL create %s: build error: %v", kind, err)
+		rerender(err.Error())
 		return
 	}
 
-	tag, err := s.runOnTarget(ctx, kind, sid, db, []string{sqlStr})
+	tag, err := s.runOnTarget(ctx, kind, sid, db, splitStatements(sqlStr))
 	if err != nil {
 		log.Printf("DDL create %s failed: %v", kind, err)
-		rerender("Execution failed: "+err.Error(), http.StatusBadRequest)
+		rerender("Execution failed: " + err.Error())
 		return
 	}
 
@@ -1046,17 +1220,19 @@ func (s *Server) handleDDLCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDDLDrop(w http.ResponseWriter, r *http.Request) {
 	kind := chi.URLParam(r, "kind")
 	if _, ok := ddlKinds[kind]; !ok {
+		log.Printf("DDL drop: unknown kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
+		log.Printf("DDL drop: invalid form data: %v", err)
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
 
 	sid, err := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
 	if err != nil || sid < 1 {
-		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("DDL drop %s: missing or invalid server_id %q", kind, r.FormValue("server_id"))
 		s.renderDDLModal(w, ddlModalData{Partial: "ddl_drop_modal.html", Kind: kind, Error: "Missing or invalid server id."})
 		return
 	}
@@ -1066,7 +1242,7 @@ func (s *Server) handleDDLDrop(w http.ResponseWriter, r *http.Request) {
 	table := r.FormValue("table")
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" {
-		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("DDL drop %s: object name is required", kind)
 		s.renderDDLModal(w, ddlModalData{
 			Partial:  "ddl_drop_modal.html",
 			Kind:     kind,
@@ -1080,7 +1256,7 @@ func (s *Server) handleDDLDrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.isDisconnected(sid) {
-		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("DDL drop %s: server %d is disconnected", kind, sid)
 		s.renderDDLModal(w, ddlModalData{
 			Partial:  "ddl_drop_modal.html",
 			Kind:     kind,
@@ -1098,8 +1274,7 @@ func (s *Server) handleDDLDrop(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	rerender := func(errMsg string, status int) {
-		w.WriteHeader(status)
+	rerender := func(errMsg string) {
 		s.renderDDLModal(w, ddlModalData{
 			Partial:  "ddl_drop_modal.html",
 			Kind:     kind,
@@ -1118,14 +1293,15 @@ func (s *Server) handleDDLDrop(w http.ResponseWriter, r *http.Request) {
 	v := formValues(r.Form)
 	sqlStr, err := ddlKinds[kind].BuildDrop(v)
 	if err != nil {
-		rerender(err.Error(), http.StatusBadRequest)
+		log.Printf("DDL drop %s: build error: %v", kind, err)
+		rerender(err.Error())
 		return
 	}
 
 	tag, err := s.runOnTarget(ctx, kind, sid, db, []string{sqlStr})
 	if err != nil {
 		log.Printf("DDL drop %s failed: %v", kind, err)
-		rerender("Execution failed: "+err.Error(), http.StatusBadRequest)
+		rerender("Execution failed: " + err.Error())
 		return
 	}
 

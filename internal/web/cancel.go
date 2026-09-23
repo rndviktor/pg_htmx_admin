@@ -66,6 +66,7 @@ func (s *Server) handleCancelQuery(w http.ResponseWriter, r *http.Request) {
 		TabID string `json:"tab_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TabID == "" {
+		log.Printf("[cancel-query] missing or invalid tab_id: body decode err=%v", err)
 		http.Error(w, "Missing tab_id", http.StatusBadRequest)
 		return
 	}
@@ -77,6 +78,7 @@ func (s *Server) handleCancelQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
+		log.Printf("[cancel-query] no running query for tab %q", req.TabID)
 		http.Error(w, "No query is currently running for this tab", http.StatusNotFound)
 		return
 	}

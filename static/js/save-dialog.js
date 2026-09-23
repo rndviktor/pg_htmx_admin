@@ -37,7 +37,15 @@
                     if (!input) return;
                     prefetchDefaultPath(input, dialog.name);
                 })
-                .catch(() => {});
+                .catch(async (httpErr) => {
+                    if (httpErr && httpErr.status === 401) return;
+                    let detail = httpErr ? (httpErr.statusText || "HTTP " + httpErr.status) : "";
+                    if (httpErr && typeof httpErr.text === "function") {
+                        try { detail = (await httpErr.text()) || detail; } catch (e) { /* ignore */ }
+                    }
+                    const msg = "Failed to open the Save window" + (detail ? ": " + detail : ".");
+                    if (window.showToast) window.showToast(msg, "error");
+                });
         },
     };
 

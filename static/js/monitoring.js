@@ -388,7 +388,8 @@ function cancelSession(pid) {
     const query = adminParams();
     if (!query) return;
     fetch("/api/sessions/" + pid + "/cancel?" + query, { method: "POST", credentials: "same-origin" })
-        .then(refreshSessions);
+        .then((r) => { if (!r.ok) throw r; refreshSessions(); })
+        .catch((err) => sessionActionError("Cancel query failed", err));
 }
 
 function terminateSession(pid) {
@@ -396,7 +397,25 @@ function terminateSession(pid) {
     const query = adminParams();
     if (!query) return;
     fetch("/api/sessions/" + pid + "?" + query, { method: "DELETE", credentials: "same-origin" })
-        .then(refreshSessions);
+        .then((r) => { if (!r.ok) throw r; refreshSessions(); })
+        .catch((err) => sessionActionError("Terminate session failed", err));
+}
+
+// Surface a failed cancel/terminate (the backend answers 500) via toast and
+// a red row message so the user sees the request was not honoured.
+function sessionActionError(prefix, err) {
+    let detail = "";
+    if (err && typeof err.text === "function") {
+        err.text().then((t) => {
+            const msg = prefix + (t ? ": " + t : ".");
+            if (window.showToast) window.showToast(msg, "error");
+        }).catch(() => {
+            if (window.showToast) window.showToast(prefix + ".", "error");
+        });
+    } else {
+        if (window.showToast) window.showToast(prefix + ".", "error");
+    }
+    refreshSessions();
 }
 
 // Search/filter inputs are bound once via delegation so they keep working

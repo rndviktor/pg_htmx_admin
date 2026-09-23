@@ -51,10 +51,10 @@ var (
 	// server (database-level tree nodes must query that database's catalogs,
 	// not the server's maintenance DB).
 	dbSpecificPools = make(map[dbPoolKey]*pgxpool.Pool)
-// disconnectedServers tracks servers the user explicitly disconnected
-// from. They show a gray dot, cannot be expanded, and are not re-connected
-// automatically on page refresh until the user reconnects them. The flag is
-// also persisted in the server table so it survives across restarts.
+	// disconnectedServers tracks servers the user explicitly disconnected
+	// from. They show a gray dot, cannot be expanded, and are not re-connected
+	// automatically on page refresh until the user reconnects them. The flag is
+	// also persisted in the server table so it survives across restarts.
 	disconnectedServers = make(map[int64]bool)
 	mu                  sync.RWMutex
 )
@@ -337,14 +337,16 @@ func (s *Server) handleAddServer(w http.ResponseWriter, r *http.Request) {
 
 	pool, err := pgxpool.New(ctx, cfg.DSN())
 	if err != nil {
-		s.renderModalError(w, fmt.Sprintf("Configuration error: %v", err))
+		log.Printf("[servers] Configuration error registering %q (%s:%d): %v", cfg.Name, cfg.Host, cfg.Port, err)
+		s.renderModalError(w, r, fmt.Sprintf("Configuration error: %v", err))
 		return
 	}
 
 	// Ping database to verify credentials & connectivity
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		s.renderModalError(w, fmt.Sprintf("Connection failed: %v", err))
+		log.Printf("[servers] Connection failed registering %q (%s:%d): %v", cfg.Name, cfg.Host, cfg.Port, err)
+		s.renderModalError(w, r, fmt.Sprintf("Connection failed: %v", err))
 		return
 	}
 
@@ -371,7 +373,8 @@ func (s *Server) handleAddServer(w http.ResponseWriter, r *http.Request) {
 		delete(serverPools, cfg.ID)
 		mu.Unlock()
 		pool.Close()
-		s.renderModalError(w, fmt.Sprintf("Failed to store server: %v", err))
+		log.Printf("[servers] Failed to store server %q (%s:%d): %v", cfg.Name, cfg.Host, cfg.Port, err)
+		s.renderModalError(w, r, fmt.Sprintf("Failed to store server: %v", err))
 		return
 	}
 
@@ -390,9 +393,29 @@ func (s *Server) handleAddServer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) renderModalError(w http.ResponseWriter, errorMsg string) {
-	w.WriteHeader(http.StatusBadRequest)
+// renderModalError re-renders the Register Server modal with the submitted
+// values preserved and an inline error banner. It responds with 200 so htmx
+// (whose default response handling drops non-2xx bodies) swaps it into
+// #modal-container and the user can fix the form.
+func (s *Server) renderModalError(w http.ResponseWriter, r *http.Request, errorMsg string) {
+	port := r.FormValue("port")
+	if port == "" {
+		port = "5432"
+	}
+	sslMode := r.FormValue("sslmode")
+	if !validSslModes[sslMode] {
+		sslMode = "disable"
+	}
 	RenderPartial(w, "add_server_modal.html", map[string]any{
 		"Error": errorMsg,
+		"Values": map[string]any{
+			"name":     r.FormValue("name"),
+			"host":     r.FormValue("host"),
+			"port":     port,
+			"dbname":   r.FormValue("dbname"),
+			"username": r.FormValue("username"),
+			"password": r.FormValue("password"),
+			"sslmode":  sslMode,
+		},
 	})
 }

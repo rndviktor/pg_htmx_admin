@@ -321,6 +321,7 @@ function executeQuery(btn, page) {
             const data = (result && result.dataset) || {};
             const elapsed = data.elapsed || "0";
             const message = data.message || "";
+            const isError = data.isError === "true";
             if (grid && result) {
                 grid.innerHTML = result.innerHTML;
                 initDataGridResize(grid, panel);
@@ -335,7 +336,8 @@ function executeQuery(btn, page) {
 
             if (message) {
                 if (status) status.textContent = message + " — " + elapsed + "s";
-                logMessage(panel, "success", message);
+                if (status) status.classList.toggle("text-red-400", isError);
+                logMessage(panel, isError ? "error" : "success", message);
             } else {
                 if (status) status.textContent = rowLabel(total) + " (" + rows + " on page) — " + elapsed + "s";
                 logMessage(panel, "success", rowLabel(total) + " returned");
@@ -627,6 +629,9 @@ function useHistoryItem(item) {
         .then((r) => { if (!r.ok) throw r; return r.text(); })
         .then((html) => {
             pane.innerHTML = html;
+        })
+        .catch(() => {
+            pane.innerHTML = '<div class="p-3 text-xs text-red-400">Failed to load this history entry.</div>';
         });
 }
 

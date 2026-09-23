@@ -17,17 +17,17 @@ import (
 // for a single database. The frontend polls this endpoint periodically and
 // accumulates the deltas into live time-series charts.
 type monitoringResponse struct {
-	ActiveConnections int64         `json:"activeConnections"`
-	MaxConnections    int64         `json:"maxConnections"`
-	DatabaseSizeBytes int64         `json:"dbSizeBytes"`
+	ActiveConnections int64 `json:"activeConnections"`
+	MaxConnections    int64 `json:"maxConnections"`
+	DatabaseSizeBytes int64 `json:"dbSizeBytes"`
 
-	ActiveTxCount int64 `json:"activeTx"`
-	IdleTxCount   int64 `json:"idleTx"`
-	IdleCount     int64 `json:"idle"`
+	ActiveTxCount  int64 `json:"activeTx"`
+	IdleTxCount    int64 `json:"idleTx"`
+	IdleCount      int64 `json:"idle"`
 	BlockedQueries int64 `json:"blockedQueries"`
 
-	BlksHit      int64 `json:"blksHit"`
-	BlksRead     int64 `json:"blksRead"`
+	BlksHit  int64 `json:"blksHit"`
+	BlksRead int64 `json:"blksRead"`
 
 	XactCommit   int64 `json:"xactCommit"`
 	XactRollback int64 `json:"xactRollback"`
@@ -255,6 +255,7 @@ func (s *Server) handleMonitoringStream(w http.ResponseWriter, r *http.Request) 
 
 	fl, ok := w.(http.Flusher)
 	if !ok {
+		log.Printf("[monitoring] streaming unsupported for %s", r.URL.Path)
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
@@ -281,10 +282,12 @@ func (s *Server) handleMonitoringStream(w http.ResponseWriter, r *http.Request) 
 			resp, err := queryKPIs(ctx, pool)
 			if err != nil {
 				// Keep the stream alive; retry next tick.
+				log.Printf("[monitoring] KPI snapshot failed: %v", err)
 				continue
 			}
 			data, err := json.Marshal(resp)
 			if err != nil {
+				log.Printf("[monitoring] failed to marshal KPI snapshot: %v", err)
 				continue
 			}
 			if _, err := w.Write(append([]byte("data: "), append(data, byte('\n'), byte('\n'))...)); err != nil {

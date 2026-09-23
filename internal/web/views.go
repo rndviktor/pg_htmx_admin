@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	htmxgolangexcercise "htmx-golang-excercise"
@@ -77,29 +78,41 @@ func InitTemplates() error {
 func Render(w http.ResponseWriter, name string, data any) {
 	tmpl, ok := templates[name]
 	if !ok {
+		log.Printf("Render error: template %s not found", name)
 		http.Error(w, fmt.Sprintf("Template %s not found", name), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	if err := tmpl.Execute(w, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
 		log.Printf("Render error [%s]: %v", name, err)
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		log.Printf("Render write error [%s]: %v", name, err)
 	}
 }
 
 func RenderPartial(w http.ResponseWriter, name string, data any) {
 	tmpl, ok := templates["partial:"+name]
 	if !ok {
+		log.Printf("RenderPartial error: template partial:%s not found", name)
 		http.Error(w, fmt.Sprintf("Partial template %s not found", name), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	if err := tmpl.Execute(w, data); err != nil {
-		log.Printf("RenderPartiak error [%s]: %v", name, err)
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		log.Printf("RenderPartial error [%s]: %v", name, err)
 		http.Error(w, "Failed to render fragment", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		log.Printf("RenderPartial write error [%s]: %v", name, err)
 	}
 }

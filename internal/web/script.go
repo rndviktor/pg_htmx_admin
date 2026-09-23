@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -30,6 +31,7 @@ func (s *Server) handleCreateScript(w http.ResponseWriter, r *http.Request) {
 		Column2: pgtype.Text{String: tableName, Valid: true},
 	})
 	if err != nil {
+		log.Printf("[script] Failed to query columns for %s.%s: %v", schemaName, tableName, err)
 		http.Error(w, "Failed to query columns: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -39,6 +41,7 @@ func (s *Server) handleCreateScript(w http.ResponseWriter, r *http.Request) {
 		Relname: tableName,
 	})
 	if err != nil {
+		log.Printf("[script] Failed to query primary key for %s.%s: %v", schemaName, tableName, err)
 		http.Error(w, "Failed to query primary key: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -54,6 +57,8 @@ func (s *Server) handleCreateScript(w http.ResponseWriter, r *http.Request) {
 		if tableInfo.Tablespace.Valid && tableInfo.Tablespace.String != "" {
 			tablespace = tableInfo.Tablespace.String
 		}
+	} else {
+		log.Printf("[script] GetTableInfo failed for %s.%s (using defaults): %v", schemaName, tableName, err)
 	}
 
 	query := buildCreateTableScript(schemaName, tableName, owner, tablespace, cols, pkRows)
@@ -92,6 +97,7 @@ func (s *Server) handleInsertScript(w http.ResponseWriter, r *http.Request) {
 		TableName:   tableName,
 	})
 	if err != nil {
+		log.Printf("[script] Failed to query columns for %s.%s: %v", schemaName, tableName, err)
 		http.Error(w, "Failed to query columns: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -124,6 +130,7 @@ func (s *Server) handleCreateViewScript(w http.ResponseWriter, r *http.Request) 
 		Relname: viewName,
 	})
 	if err != nil {
+		log.Printf("[script] Failed to query view definition for %s.%s: %v", schemaName, viewName, err)
 		http.Error(w, "Failed to query view definition: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -148,6 +155,7 @@ func (s *Server) handleInsertViewScript(w http.ResponseWriter, r *http.Request) 
 		TableName:   viewName,
 	})
 	if err != nil {
+		log.Printf("[script] Failed to query columns for view %s.%s: %v", schemaName, viewName, err)
 		http.Error(w, "Failed to query columns: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -187,6 +195,7 @@ func (s *Server) handleSelectViewScript(w http.ResponseWriter, r *http.Request) 
 		TableName:   viewName,
 	})
 	if err != nil {
+		log.Printf("[script] Failed to query columns for view %s.%s: %v", schemaName, viewName, err)
 		http.Error(w, "Failed to query columns", http.StatusInternalServerError)
 		return
 	}
@@ -218,6 +227,7 @@ func (s *Server) handleSelectMatViewScript(w http.ResponseWriter, r *http.Reques
 		Relname: mvName,
 	})
 	if err != nil {
+		log.Printf("[script] Failed to query columns for matview %s.%s: %v", schemaName, mvName, err)
 		http.Error(w, "Failed to query columns", http.StatusInternalServerError)
 		return
 	}

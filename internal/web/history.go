@@ -94,6 +94,7 @@ func (s *Server) handleQueryHistory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQueryHistoryDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id < 1 {
+		log.Printf("history detail: invalid id %q on %s", chi.URLParam(r, "id"), r.URL.Path)
 		http.Error(w, "Invalid history id", http.StatusBadRequest)
 		return
 	}
@@ -106,6 +107,7 @@ func (s *Server) handleQueryHistoryDetail(w http.ResponseWriter, r *http.Request
 		UserID: workspaceUserID(),
 	})
 	if err != nil {
+		log.Printf("history detail: entry %d not found: %v", id, err)
 		http.Error(w, "History entry not found", http.StatusNotFound)
 		return
 	}

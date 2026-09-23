@@ -911,7 +911,11 @@ func (s *Server) handleServerTablespaces(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleNewServerModal(w http.ResponseWriter, r *http.Request) {
-	RenderPartial(w, "add_server_modal.html", nil)
+	RenderPartial(w, "add_server_modal.html", map[string]any{
+		"Values": map[string]any{
+			"port": "5432", "dbname": "postgres", "sslmode": "disable",
+		},
+	})
 }
 
 func (s *Server) handleScriptTabPanel(w http.ResponseWriter, r *http.Request) {
@@ -920,6 +924,7 @@ func (s *Server) handleScriptTabPanel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
+		log.Printf("[query] invalid form data on %s: %v", r.URL.Path, err)
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
@@ -930,12 +935,14 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	tabID := r.FormValue("tab_id")
 
 	if query == "" || serverIDStr == "" || dbName == "" {
+		log.Printf("[query] missing query/server_id/db_name params on %s", r.URL.Path)
 		http.Error(w, "Missing query, server_id, or db_name", http.StatusBadRequest)
 		return
 	}
 
 	serverID, err := strconv.ParseInt(serverIDStr, 10, 64)
 	if err != nil || serverID < 1 {
+		log.Printf("[query] invalid server id %q on %s", serverIDStr, r.URL.Path)
 		http.Error(w, "Invalid server id", http.StatusBadRequest)
 		return
 	}
@@ -954,6 +961,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 
 	pool, err := s.getOrCreateDbPool(r.Context(), serverID, dbName)
 	if err != nil {
+		log.Printf("[query] cannot connect to server %d db %q: %v", serverID, dbName, err)
 		http.Error(w, "Cannot connect to database: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -964,6 +972,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// registered and the running query cancelled via the Stop button.
 	conn, err := pool.Acquire(r.Context())
 	if err != nil {
+		log.Printf("[query] pool acquire for server %d db %q failed: %v", serverID, dbName, err)
 		http.Error(w, "Cannot connect to database: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -990,6 +999,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		var rowsAffected int64
 		if err != nil {
 			message = err.Error()
+			log.Printf("[query] execution failed on server %d db %q: %v", serverID, dbName, err)
 		} else {
 			message = exec.String()
 			rowsAffected = exec.RowsAffected()
@@ -1007,6 +1017,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			"Offset":     0,
 			"Elapsed":    elapsed,
 			"Message":    message,
+			"IsError":    err != nil,
 		})
 		return
 	}
@@ -1023,6 +1034,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// Count total rows
 	var total int
 	if err := br.QueryRow().Scan(&total); err != nil {
+		log.Printf("[query] count query failed on server %d db %q: %v", serverID, dbName, err)
 		http.Error(w, "Count query failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1030,6 +1042,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// Fetch paginated rows
 	rows, err := br.Query()
 	if err != nil {
+		log.Printf("[query] data query failed on server %d db %q: %v", serverID, dbName, err)
 		http.Error(w, "Query failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1051,6 +1064,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			valPtrs[i] = &vals[i]
 		}
 		if err := rows.Scan(valPtrs...); err != nil {
+			log.Printf("[query] row scan error on server %d db %q: %v", serverID, dbName, err)
 			http.Error(w, "Row scan error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1145,6 +1159,7 @@ func (s *Server) renderExplain(w http.ResponseWriter, r *http.Request, conn *pgx
 	message := ""
 	if err != nil {
 		message = err.Error()
+		log.Printf("[query] EXPLAIN failed on server %d db %q: %v", serverID, dbName, err)
 	}
 
 	var headers []string
@@ -1165,6 +1180,7 @@ func (s *Server) renderExplain(w http.ResponseWriter, r *http.Request, conn *pgx
 			}
 			if err := rows.Scan(valPtrs...); err != nil {
 				message = err.Error()
+				log.Printf("[query] EXPLAIN row scan error on server %d db %q: %v", serverID, dbName, err)
 				break
 			}
 			row := make([]string, colCount)
@@ -1180,6 +1196,7 @@ func (s *Server) renderExplain(w http.ResponseWriter, r *http.Request, conn *pgx
 		}
 		if err := rows.Err(); err != nil && message == "" {
 			message = err.Error()
+			log.Printf("[query] EXPLAIN rows.Err on server %d db %q: %v", serverID, dbName, err)
 		}
 	}
 
@@ -1195,6 +1212,7 @@ func (s *Server) renderExplain(w http.ResponseWriter, r *http.Request, conn *pgx
 		"Offset":     0,
 		"Elapsed":    elapsed,
 		"Message":    message,
+		"IsError":    message != "",
 	})
 }
 
@@ -1209,6 +1227,7 @@ func (s *Server) handleTableColumns(w http.ResponseWriter, r *http.Request) {
 		TableName:   tableName,
 	})
 	if err != nil {
+		log.Printf("[columns] failed to query columns for %s.%s: %v", schemaName, tableName, err)
 		http.Error(w, "Failed to query columns", http.StatusInternalServerError)
 		return
 	}

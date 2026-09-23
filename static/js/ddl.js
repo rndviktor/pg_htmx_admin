@@ -20,7 +20,15 @@
                 container.innerHTML = html;
                 if (window.htmx && htmx.process) htmx.process(container);
             })
-            .catch(() => {});
+            .catch(async (httpErr) => {
+                if (httpErr && httpErr.status === 401) return;
+                let detail = httpErr ? (httpErr.statusText || "HTTP " + httpErr.status) : "";
+                if (httpErr && typeof httpErr.text === "function") {
+                    try { detail = (await httpErr.text()) || detail; } catch (e) { /* ignore */ }
+                }
+                const msg = "Failed to open dialog" + (detail ? ": " + detail : ".");
+                if (window.showToast) window.showToast(msg, "error");
+            });
     }
 
     // Resolves the tree container id that a create/drop must refresh.

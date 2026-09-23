@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,16 +18,19 @@ func (s *Server) loadPoolFromQuery(w http.ResponseWriter, r *http.Request) (*pgx
 	serverIDStr := r.URL.Query().Get("server_id")
 	dbName := r.URL.Query().Get("db_name")
 	if serverIDStr == "" || dbName == "" {
+		log.Printf("[%s] Missing server_id or db_name params", r.URL.Path)
 		http.Error(w, "Missing server_id or db_name", http.StatusBadRequest)
 		return nil, false
 	}
 	serverID, err := strconv.ParseInt(serverIDStr, 10, 64)
 	if err != nil || serverID < 1 {
+		log.Printf("[%s] Invalid server_id %q", r.URL.Path, serverIDStr)
 		http.Error(w, "Invalid server_id", http.StatusBadRequest)
 		return nil, false
 	}
 	pool, err := s.getOrCreateDbPool(r.Context(), serverID, dbName)
 	if err != nil {
+		log.Printf("[%s] Cannot connect to database (server %d, db %q): %v", r.URL.Path, serverID, dbName, err)
 		http.Error(w, "Cannot connect to database: "+err.Error(), http.StatusBadGateway)
 		return nil, false
 	}
@@ -99,6 +103,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r.Context(), query, activeOnly)
 	if err != nil {
+		log.Printf("[sessions] Failed to query sessions: %v", err)
 		http.Error(w, "Failed to query sessions: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -110,6 +115,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&row.PID, &row.Usename, &row.ApplicationName, &row.ClientAddr,
 			&row.BackendStart, &row.XactStart, &row.State, &row.WaitEvent,
 			&row.BlockingPIDs); err != nil {
+			log.Printf("[sessions] error scanning session row: %v", err)
 			continue
 		}
 		if matchesSearch(search, strconv.FormatInt(row.PID, 10), row.Usename,
@@ -128,6 +134,7 @@ func (s *Server) handleSessionCancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := pool.Exec(r.Context(), "SELECT pg_cancel_backend($1)", pid); err != nil {
+		log.Printf("[sessions] cancel backend %d failed: %v", pid, err)
 		http.Error(w, "Failed to cancel: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -142,6 +149,7 @@ func (s *Server) handleSessionTerminate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if _, err := pool.Exec(r.Context(), "SELECT pg_terminate_backend($1)", pid); err != nil {
+		log.Printf("[sessions] terminate backend %d failed: %v", pid, err)
 		http.Error(w, "Failed to terminate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -160,6 +168,7 @@ func (s *Server) loadSessionPool(w http.ResponseWriter, r *http.Request) (*pgxpo
 
 	pid, err := strconv.ParseInt(chi.URLParam(r, "pid"), 10, 64)
 	if err != nil || pid < 1 {
+		log.Printf("[sessions] Invalid PID %q on %s", chi.URLParam(r, "pid"), r.URL.Path)
 		http.Error(w, "Invalid PID", http.StatusBadRequest)
 		return nil, 0, false
 	}
@@ -210,6 +219,7 @@ func (s *Server) handleLocks(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r.Context(), query)
 	if err != nil {
+		log.Printf("[locks] Failed to query locks: %v", err)
 		http.Error(w, "Failed to query locks: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -221,6 +231,7 @@ func (s *Server) handleLocks(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&row.PID, &row.Locktype, &row.Relation, &row.Page, &row.Tuple,
 			&row.VirtualTransactionID, &row.TransactionID, &row.ClassID, &row.ObjID,
 			&row.VirtualXIDOwner, &row.Mode, &row.Granted); err != nil {
+			log.Printf("[locks] error scanning lock row: %v", err)
 			continue
 		}
 		if matchesSearch(search, strconv.FormatInt(row.PID, 10), row.Locktype,
@@ -251,13 +262,14 @@ func (s *Server) handlePreparedTransactions(w http.ResponseWriter, r *http.Reque
 		SELECT
 			COALESCE(gid, '') AS name,
 			COALESCE(owner, '') AS owner,
-			COALESCE(xid::text, '') AS xid,
+			COALESCE(transaction::text, '') AS xid,
 			COALESCE(prepared::text, '') AS prepared_at
 		FROM pg_prepared_xacts
 		ORDER BY prepared`
 
 	rows, err := pool.Query(r.Context(), query)
 	if err != nil {
+		log.Printf("[prepared-transactions] query failed: %v", err)
 		// pg_prepared_xacts requires superuser or pg_monitor membership.
 		// Render an empty list on permission error rather than failing hard.
 		RenderPartial(w, "prepared_rows.html", map[string]any{})
@@ -269,6 +281,7 @@ func (s *Server) handlePreparedTransactions(w http.ResponseWriter, r *http.Reque
 	for rows.Next() {
 		var row preparedTxRow
 		if err := rows.Scan(&row.Name, &row.Owner, &row.XID, &row.PreparedAt); err != nil {
+			log.Printf("[prepared-transactions] error scanning row: %v", err)
 			continue
 		}
 		if matchesSearch(search, row.Name, row.Owner, row.XID) {
@@ -283,5 +296,7 @@ func (s *Server) handlePreparedTransactions(w http.ResponseWriter, r *http.Reque
 // with a JSON status object.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("Failed to encode JSON response: %v", err)
+	}
 }

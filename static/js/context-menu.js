@@ -129,7 +129,11 @@ function initContextMenu() {
                     // refresh does not re-connect the server.
                     setServerDot(el, "gray");
                     if (serverID) {
-                        fetch("/api/servers/" + serverID + "/disconnect", { method: "POST" });
+                        fetch("/api/servers/" + serverID + "/disconnect", { method: "POST" })
+                            .then((r) => { if (!r.ok) throw r; })
+                            .catch(() => {
+                                if (window.showToast) window.showToast("Failed to disconnect the server.", "error");
+                            });
                     }
                 });
                 menu.appendChild(discItem);
