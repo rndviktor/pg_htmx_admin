@@ -313,7 +313,7 @@ func (q *Queries) GetCurrentUser(ctx context.Context) (interface{}, error) {
 
 const getDomainGeneral = `-- name: GetDomainGeneral :one
 SELECT
-    t.oid AS type_oid,
+    t.oid::int4 AS type_oid,
     format_type(t.typbasetype, t.typtypmod) AS base_type,
     t.typnotnull AS not_null,
     COALESCE(t.typdefault, '') AS default_value,
@@ -947,7 +947,7 @@ func (q *Queries) GetPrimaryKeyColumns(ctx context.Context, arg GetPrimaryKeyCol
 const getRangeSubtype = `-- name: GetRangeSubtype :one
 SELECT format_type(r.rngsubtype, NULL) AS subtype
 FROM pg_range r
-WHERE r.rngtypid = $1
+WHERE r.rngtypid::int4 = $1
 LIMIT 1
 `
 
@@ -1486,7 +1486,7 @@ func (q *Queries) GetTriggerGeneral(ctx context.Context, arg GetTriggerGeneralPa
 
 const getTypeGeneral = `-- name: GetTypeGeneral :one
 SELECT
-    t.oid AS type_oid,
+    t.oid::int4 AS type_oid,
     t.typtype::text AS type_category,
     pg_get_userbyid(t.typowner) AS owner,
     COALESCE(obj_description(t.oid, 'pg_type'), '') AS comment
@@ -1689,7 +1689,7 @@ func (q *Queries) ListCatalogs(ctx context.Context) ([]string, error) {
 const listCompositeAttributes = `-- name: ListCompositeAttributes :many
 SELECT a.attname, format_type(a.atttypid, a.atttypmod) AS data_type
 FROM pg_attribute a
-WHERE a.attrelid = (SELECT typrelid FROM pg_type WHERE oid = $1)
+WHERE a.attrelid = (SELECT typrelid FROM pg_type WHERE oid::int4 = $1)
   AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY a.attnum
 `
@@ -1816,7 +1816,7 @@ func (q *Queries) ListDatabases(ctx context.Context) ([]string, error) {
 const listDomainConstraints = `-- name: ListDomainConstraints :many
 SELECT c.conname, pg_get_constraintdef(c.oid, true) AS definition
 FROM pg_constraint c
-WHERE c.contypid = $1
+WHERE c.contypid::int4 = $1
 ORDER BY c.conname
 `
 
@@ -1899,7 +1899,7 @@ func (q *Queries) ListEncodings(ctx context.Context) ([]string, error) {
 
 const listEnumLabels = `-- name: ListEnumLabels :many
 SELECT e.enumlabel FROM pg_enum e
-WHERE e.enumtypid = $1
+WHERE e.enumtypid::int4 = $1
 ORDER BY e.enumsortorder
 `
 
