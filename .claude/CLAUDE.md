@@ -3,6 +3,7 @@
 ## Style Requirements
 - Follow Golang, Javascript and HTMX idiomatic patterns.
 - Keep functions small and modular.
+- Keep front-end bundle as small as possible.
 
 ## Destructive Actions & Refactoring Safety
 - DO NOT silently remove, delete, or replace existing functions, classes, or obsolete code blocks.
