@@ -32,10 +32,15 @@ that is missing, ordered by priority.
   for 13 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index and
   trigger — plus a Create Table dialog with columns (name, type, nullability,
-  default, primary key / unique keys) and a CHECK constraint, and pre-filled
-  `ALTER` dialogs for database, role and schema. The client never sends raw
-  SQL; a successful create/drop/alter refreshes the tree in place
-  (`internal/web/ddl.go`).
+  default, primary key / unique keys) and a CHECK constraint. Pre-filled
+  `ALTER` dialogs now cover all 13 kinds: rename/owner for database, role,
+  tablespace and publication; rename/owner/set-schema for table, view,
+  materialized view, function, procedure and sequence (plus increment/min/max/
+  cache/restart/cycle for sequences); update-version/set-schema for
+  extensions (no owner/rename — Postgres has no such `ALTER EXTENSION` form);
+  rename for indexes; and enable/disable + rename for triggers. The client
+  never sends raw SQL; a successful create/drop/alter refreshes the tree in
+  place (`internal/web/ddl.go`).
 - **Script generation**: SELECT / CREATE / INSERT / DELETE templates for tables;
   SELECT / CREATE / INSERT for views; SELECT for materialized views
   (`internal/web/script.go`).
@@ -50,12 +55,15 @@ that is missing, ordered by priority.
    Tables folder (`internal/web/tree.go:234`) opens a Create Table dialog with
    per-column name, type, nullability, default and primary key / unique keys
    plus a CHECK constraint (`templates/partials/ddl_table_modal.html`).
-   **ALTER exists for the first three objects**: database, role and schema open
-   pre-filled edit-in-place dialogs (rename, owner, connection limits,
-   privilege/login flags, valid-until, ...). Still missing: ALTER for the other
-   DDL kinds, foreign key / exclusion constraints and generated columns, and
-   create dialogs for indexes/triggers with constraint options, rules, RLS
-   policies and table partitioning.
+   **ALTER now covers all 13 DDL kinds**: database, role, tablespace, schema,
+   table, view, materialized view, sequence, function, procedure, extension,
+   publication, index and trigger all open pre-filled edit-in-place dialogs
+   (`internal/web/ddl.go`, `templates/partials/ddl_alter_modal.html`). Table's
+   ALTER covers owner/schema/rename only — no column-level changes. Still
+   missing: foreign key / exclusion constraints and generated columns (Create
+   Table and `ALTER TABLE` column DDL — add/drop/alter column), rules, RLS
+   policies, table partitioning, and richer index/trigger *create* options
+   (constraint options, `USING` storage parameters).
 2. **Properties coverage is partial** — no properties panel at all for
    databases, roles, tablespaces, procedures, extensions and publications, nor
    for the plain leaves (columns, constraints, RLS policies, rules, types,
@@ -65,10 +73,11 @@ that is missing, ordered by priority.
    Statistics and Dependencies only on table/view/materialized-view.
 3. **Remaining context-menu gaps** — Disconnect / Connect / Try to reconnect,
    Create (database/role/tablespace/table), Drop (13 kinds, with CASCADE/FORCE),
-   Alter (database/role/schema) and Properties/Scripts/Query Tool are all
-   present, but still missing: DROP SCRIPT (generate without executing),
-   per-database Connect/Disconnect, Reload configuration, and named restore
-   points.
+   Alter (13 kinds) and Properties/Scripts/Query Tool are all present, but
+   still missing: DROP SCRIPT (generate without executing), a Drop action for
+   tables specifically (the builder exists in `internal/web/ddl.go` but isn't
+   wired into `static/js/context-menu.js`'s `DROP_ITEMS`), per-database
+   Connect/Disconnect, Reload configuration, and named restore points.
 
 ### P2 — Data editing + maintenance
 
@@ -127,6 +136,8 @@ that is missing, ordered by priority.
 The two highest-leverage projects that build most naturally on the existing
 `tree.go` / sqlc structure are:
 
-- **#1 + #2: table DDL dialog and `ALTER` support** (columns with constraints,
-  plus edit-in-place for schemas, databases and roles first), or
+- **#1: `ALTER TABLE` column DDL** (add/drop/alter column, foreign key /
+  exclusion constraints, generated columns) to round out table ALTER beyond
+  owner/schema/rename, plus **#2: properties coverage** for the remaining
+  object kinds, or
 - **#4: View/Edit Data** editable grid.

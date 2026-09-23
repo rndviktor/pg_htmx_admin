@@ -206,18 +206,24 @@ function initContextMenu() {
             menu.appendChild(dropItem);
         }
 
-        // Edit-in-place via ALTER: database, role and schema nodes open a
-        // pre-filled alter dialog (name, owner, privilege flags, ...).
+        // Edit-in-place via ALTER: every DDL-managed kind opens a pre-filled
+        // alter dialog (name, owner, schema, privilege flags, ...).
         const ALTER_ITEMS = {
             database: "Alter Database", role: "Alter Role", schema: "Alter Schema",
+            tablespace: "Alter Tablespace", table: "Alter Table", view: "Alter View",
+            "materialized-view": "Alter Materialized View", sequence: "Alter Sequence",
+            function: "Alter Function", procedure: "Alter Procedure",
+            extension: "Alter Extension", publication: "Alter Publication",
+            index: "Alter Index", trigger: "Alter Trigger",
         };
         if (ALTER_ITEMS.hasOwnProperty(currentMenuKind)) {
             menu.appendChild(divider());
 
             const alterItem = menuItem(ALTER_ITEMS[currentMenuKind], false);
             alterItem.addEventListener("click", () => {
+                const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
                 const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openAlterDDLDialog(currentMenuKind, nodeURL, name, ddlFolderID(el, false));
+                openAlterDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
             });
             menu.appendChild(alterItem);
         }

@@ -24,12 +24,14 @@
                            class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
                            autocomplete="off" spellcheck="false">
                 </div>
+                {{ if ne .Kind "extension" }}
                 <div>
                     <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">New name (optional)</label>
                     <input type="text" name="newname" placeholder="Leave blank to keep the current name" value="{{ index .Values "newname" }}"
                            class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
                            autocomplete="off" spellcheck="false">
                 </div>
+                {{ end }}
             </div>
 
             {{ if eq .Kind "schema" }}
@@ -130,6 +132,93 @@
                     <input type="datetime-local" name="validuntil" value="{{ index .Values "validuntil" }}"
                            class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
                 </div>
+            </div>
+            {{ else if or (eq .Kind "tablespace") (eq .Kind "publication") }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Owner</label>
+                <select name="owner" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    <option value="">(unchanged)</option>
+                    {{ range (index .Dropdowns "roles") }}<option value="{{ . }}" {{ if eq . (index $.Values "owner") }}selected{{ end }}>{{ . }}</option>{{ end }}
+                </select>
+            </div>
+            {{ else if or (eq .Kind "table") (eq .Kind "view") (eq .Kind "matview") (eq .Kind "function") (eq .Kind "procedure") (eq .Kind "sequence") }}
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Owner</label>
+                    <select name="owner" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="">(unchanged)</option>
+                        {{ range (index .Dropdowns "roles") }}<option value="{{ . }}" {{ if eq . (index $.Values "owner") }}selected{{ end }}>{{ . }}</option>{{ end }}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">New schema (optional)</label>
+                    <select name="newschema" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="">(unchanged)</option>
+                        {{ range (index .Dropdowns "schemas") }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+                    </select>
+                </div>
+            </div>
+            {{ if eq .Kind "sequence" }}
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Increment by</label>
+                    <input type="number" name="increment" placeholder="Leave blank to keep current value" value="{{ index .Values "increment" }}"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cache</label>
+                    <input type="number" name="cache" placeholder="Leave blank to keep current value" value="{{ index .Values "cache" }}"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Min value</label>
+                    <input type="number" name="minvalue" placeholder="Leave blank to keep current value" value="{{ index .Values "minvalue" }}"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Max value</label>
+                    <input type="number" name="maxvalue" placeholder="Leave blank to keep current value" value="{{ index .Values "maxvalue" }}"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Restart with</label>
+                    <input type="number" name="restart" placeholder="Leave blank to keep current value"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cycle?</label>
+                    <select name="cycle" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="" {{ if not (eq (index .Values "cycle") "on") }}{{ if not (eq (index .Values "cycle") "off") }}selected{{ end }}{{ end }}>(unchanged)</option>
+                        <option value="on" {{ if eq (index .Values "cycle") "on" }}selected{{ end }}>Yes</option>
+                        <option value="off" {{ if eq (index .Values "cycle") "off" }}selected{{ end }}>No</option>
+                    </select>
+                </div>
+            </div>
+            {{ end }}
+            {{ else if eq .Kind "extension" }}
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Target version</label>
+                    <input type="text" name="version" placeholder="Leave blank to keep current version" value="{{ index .Values "version" }}"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                           autocomplete="off" spellcheck="false">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">New schema (optional)</label>
+                    <select name="newschema" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="">(unchanged)</option>
+                        {{ range (index .Dropdowns "schemas") }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+                    </select>
+                </div>
+            </div>
+            {{ else if eq .Kind "trigger" }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Enabled?</label>
+                <select name="enabled" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    <option value="" {{ if not (eq (index .Values "enabled") "on") }}{{ if not (eq (index .Values "enabled") "off") }}selected{{ end }}{{ end }}>(unchanged)</option>
+                    <option value="on" {{ if eq (index .Values "enabled") "on" }}selected{{ end }}>Yes</option>
+                    <option value="off" {{ if eq (index .Values "enabled") "off" }}selected{{ end }}>No</option>
+                </select>
             </div>
             {{ end }}
 

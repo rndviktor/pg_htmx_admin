@@ -58,30 +58,41 @@ var ddlKinds = map[string]ddlKind{
 		BuildCreate: buildCreateRole, BuildDrop: buildDropRole,
 		BuildAlter: buildAlterRole},
 	"tablespace": {Label: "Tablespace", Scope: ddlScopeServer,
-		BuildCreate: buildCreateTablespace, BuildDrop: buildDropTablespace},
+		BuildCreate: buildCreateTablespace, BuildDrop: buildDropTablespace,
+		BuildAlter: buildAlterTablespace},
 	"schema": {Label: "Schema", Scope: ddlScopeDB, HasCascade: true,
 		BuildCreate: buildCreateSchema, BuildDrop: buildDropSchema,
 		BuildAlter: buildAlterSchema},
 	"table": {Label: "Table", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreateForm: buildCreateTable, BuildDrop: buildDropTable},
+		BuildCreateForm: buildCreateTable, BuildDrop: buildDropTable,
+		BuildAlter: buildAlterTable},
 	"sequence": {Label: "Sequence", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateSequence, BuildDrop: buildDropSequence},
+		BuildCreate: buildCreateSequence, BuildDrop: buildDropSequence,
+		BuildAlter: buildAlterSequence},
 	"view": {Label: "View", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateView, BuildDrop: buildDropView},
+		BuildCreate: buildCreateView, BuildDrop: buildDropView,
+		BuildAlter: buildAlterView},
 	"matview": {Label: "Materialized View", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateMatView, BuildDrop: buildDropMatView},
+		BuildCreate: buildCreateMatView, BuildDrop: buildDropMatView,
+		BuildAlter: buildAlterMatView},
 	"function": {Label: "Function", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateFunction, BuildDrop: buildDropFunction},
+		BuildCreate: buildCreateFunction, BuildDrop: buildDropFunction,
+		BuildAlter: buildAlterFunction},
 	"procedure": {Label: "Procedure", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateProcedure, BuildDrop: buildDropProcedure},
+		BuildCreate: buildCreateProcedure, BuildDrop: buildDropProcedure,
+		BuildAlter: buildAlterProcedure},
 	"extension": {Label: "Extension", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateExtension, BuildDrop: buildDropExtension},
+		BuildCreate: buildCreateExtension, BuildDrop: buildDropExtension,
+		BuildAlter: buildAlterExtension},
 	"publication": {Label: "Publication", Scope: ddlScopeDB,
-		BuildCreate: buildCreatePublication, BuildDrop: buildDropPublication},
+		BuildCreate: buildCreatePublication, BuildDrop: buildDropPublication,
+		BuildAlter: buildAlterPublication},
 	"index": {Label: "Index", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateIndex, BuildDrop: buildDropIndex},
+		BuildCreate: buildCreateIndex, BuildDrop: buildDropIndex,
+		BuildAlter: buildAlterIndex},
 	"trigger": {Label: "Trigger", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateTrigger, BuildDrop: buildDropTrigger},
+		BuildCreate: buildCreateTrigger, BuildDrop: buildDropTrigger,
+		BuildAlter: buildAlterTrigger},
 }
 
 // ddlModalData is the view model shared by the create and drop modal partials.
@@ -1028,6 +1039,239 @@ func buildAlterRole(v map[string]string) (string, error) {
 	return joinStatements(stmts), nil
 }
 
+// alterOwnerSchemaRename emits the OWNER TO / SET SCHEMA / RENAME TO
+// statements shared by several ALTER <object> forms. qualify re-quotes the
+// target for a given schema; RENAME must reference the object by its
+// *current* schema, which changes if SET SCHEMA ran first, so the rename
+// statement recomputes the qualified name against the post-SET-SCHEMA value.
+func alterOwnerSchemaRename(object, schema string, qualify func(schema string) string, v map[string]string, hasOwner, hasSchema bool) []string {
+	var stmts []string
+	target := qualify(schema)
+	if hasOwner {
+		if owner := strings.TrimSpace(v["owner"]); owner != "" {
+			stmts = append(stmts, "ALTER "+object+" "+target+" OWNER TO "+quoteIdent(owner))
+		}
+	}
+	finalSchema := schema
+	if hasSchema {
+		if ns := strings.TrimSpace(v["newschema"]); ns != "" {
+			stmts = append(stmts, "ALTER "+object+" "+target+" SET SCHEMA "+quoteIdent(ns))
+			finalSchema = ns
+		}
+	}
+	if nn := strings.TrimSpace(v["newname"]); nn != "" {
+		stmts = append(stmts, "ALTER "+object+" "+qualify(finalSchema)+" RENAME TO "+quoteIdent(nn))
+	}
+	return stmts
+}
+
+// buildAlterTablespace emits OWNER / RENAME statements for a tablespace.
+func buildAlterTablespace(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Tablespace name")
+	}
+	stmts := alterOwnerSchemaRename("TABLESPACE", "", func(string) string { return quoteIdent(name) }, v, true, false)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterPublication emits OWNER / RENAME statements for a publication.
+func buildAlterPublication(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Publication name")
+	}
+	stmts := alterOwnerSchemaRename("PUBLICATION", "", func(string) string { return quoteIdent(name) }, v, true, false)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterTable emits OWNER / SET SCHEMA / RENAME statements for a table.
+// Column-level changes (ADD/DROP/ALTER COLUMN, constraints) are not covered.
+func buildAlterTable(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Table name")
+	}
+	schema := strings.TrimSpace(v["schema"])
+	stmts := alterOwnerSchemaRename("TABLE", schema, func(s string) string { return qualIdent(s, name) }, v, true, true)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner, schema or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterView emits OWNER / SET SCHEMA / RENAME statements for a view.
+func buildAlterView(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("View name")
+	}
+	schema := strings.TrimSpace(v["schema"])
+	stmts := alterOwnerSchemaRename("VIEW", schema, func(s string) string { return qualIdent(s, name) }, v, true, true)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner, schema or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterMatView emits OWNER / SET SCHEMA / RENAME statements for a
+// materialized view.
+func buildAlterMatView(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Materialized view name")
+	}
+	schema := strings.TrimSpace(v["schema"])
+	stmts := alterOwnerSchemaRename("MATERIALIZED VIEW", schema, func(s string) string { return qualIdent(s, name) }, v, true, true)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner, schema or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterFunction emits OWNER / SET SCHEMA / RENAME statements for a
+// function. name may carry an argument signature (e.g. "foo(integer)").
+func buildAlterFunction(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Function name")
+	}
+	schema := strings.TrimSpace(v["schema"])
+	stmts := alterOwnerSchemaRename("FUNCTION", schema, func(s string) string { return qualifiedRoutine(s, name) }, v, true, true)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner, schema or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterProcedure emits OWNER / SET SCHEMA / RENAME statements for a
+// procedure. name may carry an argument signature.
+func buildAlterProcedure(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Procedure name")
+	}
+	schema := strings.TrimSpace(v["schema"])
+	stmts := alterOwnerSchemaRename("PROCEDURE", schema, func(s string) string { return qualifiedRoutine(s, name) }, v, true, true)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner, schema or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterSequence emits numeric-option / OWNER / SET SCHEMA / RENAME
+// statements for a sequence. Blank numeric fields mean "leave unchanged";
+// cycle is tri-state like the role/database alter forms.
+func buildAlterSequence(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Sequence name")
+	}
+	schema := strings.TrimSpace(v["schema"])
+	target := qualIdent(schema, name)
+
+	var opts []string
+	if inc := strings.TrimSpace(v["increment"]); inc != "" {
+		opts = append(opts, "INCREMENT BY "+inc)
+	}
+	if min := strings.TrimSpace(v["minvalue"]); min != "" {
+		opts = append(opts, "MINVALUE "+min)
+	}
+	if max := strings.TrimSpace(v["maxvalue"]); max != "" {
+		opts = append(opts, "MAXVALUE "+max)
+	}
+	if restart := strings.TrimSpace(v["restart"]); restart != "" {
+		opts = append(opts, "RESTART WITH "+restart)
+	}
+	if cache := strings.TrimSpace(v["cache"]); cache != "" {
+		opts = append(opts, "CACHE "+cache)
+	}
+	switch v["cycle"] {
+	case "on":
+		opts = append(opts, "CYCLE")
+	case "off":
+		opts = append(opts, "NO CYCLE")
+	}
+
+	var stmts []string
+	if len(opts) > 0 {
+		stmts = append(stmts, "ALTER SEQUENCE "+target+" "+strings.Join(opts, " "))
+	}
+	stmts = append(stmts, alterOwnerSchemaRename("SEQUENCE", schema, func(s string) string { return qualIdent(s, name) }, v, true, true)...)
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterExtension emits UPDATE TO / SET SCHEMA statements for an
+// extension. Postgres has no ALTER EXTENSION ... OWNER TO / RENAME form.
+func buildAlterExtension(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Extension name")
+	}
+	var stmts []string
+	if ver := strings.TrimSpace(v["version"]); ver != "" {
+		stmts = append(stmts, "ALTER EXTENSION "+quoteIdent(name)+" UPDATE TO "+quoteLiteral(ver))
+	}
+	if ns := strings.TrimSpace(v["newschema"]); ns != "" {
+		stmts = append(stmts, "ALTER EXTENSION "+quoteIdent(name)+" SET SCHEMA "+quoteIdent(ns))
+	}
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set a target version or a new schema.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterIndex emits a RENAME statement for an index. Indexes have no
+// owner of their own and cannot change schema independently of their table.
+func buildAlterIndex(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Index name")
+	}
+	nn := strings.TrimSpace(v["newname"])
+	if nn == "" {
+		return "", formErr("Enter a new name for the index.")
+	}
+	return "ALTER INDEX " + qualIdent(v["schema"], name) + " RENAME TO " + quoteIdent(nn) + ";\n", nil
+}
+
+// buildAlterTrigger emits ENABLE/DISABLE TRIGGER (tri-state) and RENAME
+// statements for a trigger.
+func buildAlterTrigger(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Trigger name")
+	}
+	if v["schema"] == "" || v["table"] == "" {
+		return "", formErr("Target table is missing.")
+	}
+	table := qualIdent(v["schema"], v["table"])
+
+	var stmts []string
+	switch v["enabled"] {
+	case "on":
+		stmts = append(stmts, "ALTER TABLE "+table+" ENABLE TRIGGER "+quoteIdent(name))
+	case "off":
+		stmts = append(stmts, "ALTER TABLE "+table+" DISABLE TRIGGER "+quoteIdent(name))
+	}
+	if nn := strings.TrimSpace(v["newname"]); nn != "" {
+		stmts = append(stmts, "ALTER TRIGGER "+quoteIdent(name)+" ON "+table+" RENAME TO "+quoteIdent(nn))
+	}
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Toggle the enabled state or set a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
 // dropCascade is the DROP ... CASCADE suffix when the drop form requested it.
 func dropCascade(v map[string]string) string {
 	if v["cascade"] == "on" {
@@ -1207,6 +1451,13 @@ func (s *Server) ddlDropdowns(ctx context.Context, kind string, pool *pgxpool.Po
 		} else {
 			log.Printf("ddl dropdowns[ListSchemas]: %v", err)
 		}
+	case "table", "view", "matview", "sequence", "function", "procedure":
+		// Alter dialogs for these kinds offer a "new schema" select.
+		if schemas, err := queries.ListSchemas(ctx); err == nil {
+			dd["schemas"] = schemas
+		} else {
+			log.Printf("ddl dropdowns[ListSchemas]: %v", err)
+		}
 	case "index":
 		if table == "" || schema == "" {
 			break
@@ -1293,7 +1544,7 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("name")
 		values := map[string]string{"name": name}
 		if perr == nil {
-			for fk, fv := range s.alterPrefill(ctx, pool, kind, name) {
+			for fk, fv := range s.alterPrefill(ctx, pool, kind, name, schema, table) {
 				values[fk] = fv
 			}
 		}
@@ -1595,12 +1846,113 @@ func (s *Server) runOnTarget(ctx context.Context, kind string, sid int64, db str
 // alterPrefill loads an object's current server-side attributes so the alter
 // form opens showing its existing values. Best-effort: failures are logged
 // and only the fields that could be loaded are returned.
-func (s *Server) alterPrefill(ctx context.Context, pool *pgxpool.Pool, kind, name string) map[string]string {
+func (s *Server) alterPrefill(ctx context.Context, pool *pgxpool.Pool, kind, name, schema, table string) map[string]string {
 	if pool == nil || name == "" {
 		return nil
 	}
 	v := map[string]string{}
 	switch kind {
+	case "tablespace":
+		var owner string
+		err := pool.QueryRow(ctx, `SELECT pg_get_userbyid(spcowner) FROM pg_tablespace WHERE spcname = $1`, name).Scan(&owner)
+		if err != nil {
+			log.Printf("alter prefill tablespace %q: %v", name, err)
+			return v
+		}
+		v["owner"] = owner
+	case "table":
+		var owner string
+		err := pool.QueryRow(ctx, `SELECT tableowner FROM pg_tables WHERE schemaname = $1 AND tablename = $2`, schema, name).Scan(&owner)
+		if err != nil {
+			log.Printf("alter prefill table %q: %v", name, err)
+			return v
+		}
+		v["owner"] = owner
+	case "view":
+		var owner string
+		err := pool.QueryRow(ctx, `SELECT viewowner FROM pg_views WHERE schemaname = $1 AND viewname = $2`, schema, name).Scan(&owner)
+		if err != nil {
+			log.Printf("alter prefill view %q: %v", name, err)
+			return v
+		}
+		v["owner"] = owner
+	case "matview":
+		var owner string
+		err := pool.QueryRow(ctx, `SELECT matviewowner FROM pg_matviews WHERE schemaname = $1 AND matviewname = $2`, schema, name).Scan(&owner)
+		if err != nil {
+			log.Printf("alter prefill materialized view %q: %v", name, err)
+			return v
+		}
+		v["owner"] = owner
+	case "sequence":
+		var owner string
+		var increment, cache, minValue, maxValue int64
+		var cycle bool
+		err := pool.QueryRow(ctx,
+			`SELECT sequenceowner, increment_by, min_value, max_value, cache_size, cycle
+FROM pg_sequences WHERE schemaname = $1 AND sequencename = $2`, schema, name).
+			Scan(&owner, &increment, &minValue, &maxValue, &cache, &cycle)
+		if err != nil {
+			log.Printf("alter prefill sequence %q: %v", name, err)
+			return v
+		}
+		v["owner"] = owner
+		v["increment"] = strconv.FormatInt(increment, 10)
+		v["minvalue"] = strconv.FormatInt(minValue, 10)
+		v["maxvalue"] = strconv.FormatInt(maxValue, 10)
+		v["cache"] = strconv.FormatInt(cache, 10)
+		if cycle {
+			v["cycle"] = "on"
+		} else {
+			v["cycle"] = "off"
+		}
+	case "function", "procedure":
+		ref := qualifiedRoutine(schema, name)
+		var owner string
+		err := pool.QueryRow(ctx,
+			`SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid = to_regprocedure($1)`, ref).
+			Scan(&owner)
+		if err != nil {
+			log.Printf("alter prefill %s %q: %v", kind, name, err)
+			return v
+		}
+		v["owner"] = owner
+	case "extension":
+		var version, ns string
+		err := pool.QueryRow(ctx,
+			`SELECT e.extversion, n.nspname FROM pg_extension e
+JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = $1`, name).
+			Scan(&version, &ns)
+		if err != nil {
+			log.Printf("alter prefill extension %q: %v", name, err)
+			return v
+		}
+		v["version"] = version
+	case "publication":
+		var owner string
+		err := pool.QueryRow(ctx, `SELECT pg_get_userbyid(pubowner) FROM pg_publication WHERE pubname = $1`, name).Scan(&owner)
+		if err != nil {
+			log.Printf("alter prefill publication %q: %v", name, err)
+			return v
+		}
+		v["owner"] = owner
+	case "trigger":
+		if schema == "" || table == "" {
+			return v
+		}
+		var enabled string
+		err := pool.QueryRow(ctx,
+			`SELECT tgenabled FROM pg_trigger WHERE tgname = $1 AND tgrelid = $2::regclass AND NOT tgisinternal`,
+			name, qualIdent(schema, table)).Scan(&enabled)
+		if err != nil {
+			log.Printf("alter prefill trigger %q: %v", name, err)
+			return v
+		}
+		if enabled == "D" {
+			v["enabled"] = "off"
+		} else {
+			v["enabled"] = "on"
+		}
 	case "schema":
 		gen, err := pgdb.New(pool).GetSchemaGeneral(ctx, name)
 		if err != nil {
