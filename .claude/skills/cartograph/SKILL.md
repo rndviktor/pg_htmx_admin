@@ -1,11 +1,43 @@
 ---
 name: cartograph
-description: Workflows for the Pg HTMX Admin repo (Go + HTMX + CodeMirror + Chart.js). Use when working on this project — rebuilding static bundles (CodeMirror / chart.js tree-shaking via esbuild), the Docker production build (docker/Dockerfile), the hot-reload dev container (docker/Dockerfile_dev + docker/docker-compose.dev.yml + docker/air.toml), port config (PORT/.env), or verifying the containerized app.
+description: Workflows for the Pg HTMX Admin repo (Go + HTMX + CodeMirror + Chart.js). Use when working on this project — the DDL framework (create/drop/alter modals, server-generated SQL, preview-then-run), the feature-gap roadmap (docs/pgadmin4-feature-gap.md), template/partial conventions, rebuilding static bundles (CodeMirror / chart.js tree-shaking via esbuild), the Docker production build (docker/Dockerfile), the hot-reload dev container (docker/Dockerfile_dev + docker/docker-compose.dev.yml + docker/air.toml), port config (PORT/.env), or verifying the containerized app.
 ---
 
 # Pg HTMX Admin — dev/build workflows
 
 Go + HTMX app (PostgreSQL admin UI). Entry point `cmd/server/main.go`; `templates/` and `static/` are embedded into the binary via `//go:embed` (`static.go`), so any change there requires a Go rebuild to take effect.
+
+## Behavioral guidelines
+
+The repo-level behavioral rules live in `.claude/CLAUDE.md` (read it): idiomatic Go/JS/HTMX, small modular functions, keep the front-end bundle small, and never silently delete/replace legacy code — get explicit confirmation first.
+
+## Roadmap & documentation
+
+- `docs/pgadmin4-feature-gap.md` compares this app against pgAdmin4 (P1–P5 by priority) and is the source of truth for what to build next (current suggested next step: #4 View/Edit Data editable grid).
+- After implementing a feature: move it under “What this app already has” and shrink the corresponding P item. Keep cited `file:line` references accurate, and the reader-facing docs in sync with reality.
+
+## DDL framework conventions
+
+All DDL (create / drop / alter of databases, roles, tablespaces, schemas, tables, sequences, views, matviews, functions, procedures, extensions, publications, indexes, triggers) lives in `internal/web/ddl.go` and follows fixed rules:
+
+- **Server-generated SQL only.** The client posts form values; the server builds the SQL. The client never sends raw SQL text. Flow is generate → preview → run; a successful run refreshes the tree in place.
+- Everything is **map-driven** off `ddlKinds`: `Label`, `Scope` (`ddlScopeServer`/`ddlScopeDB`), `HasForce`, `HasCascade`, `BuildCreateForm`, `BuildAlter`, `BuildDrop`. Adding a kind = map entry + modal partial + `context-menu.js` label entries. Server-scoped kinds run on the maintenance pool; database-scoped kinds (e.g. `table`) must be `ddlScopeDB` and run via `ddlTargetPool(ctx, kind, sid, dbName)`.
+- Build SQL with `quoteIdent`/`qualIdent`/`quoteLiteral` (never concatenate user input); collapse multi-line user input with `singleLine`. Multi-statement scripts are executed via `splitStatements` (top-level semicolon split). Validation errors use `errRequired`/`formErr` so the form re-renders with the message.
+- ALTER forms use **tri-state selects** (`""`/`on`/`off`): the blank value means “unchanged”. Where a rename is offered, emit attribute changes **before** `RENAME TO` (renaming first invalidates the old name in later statements).
+- `renderDDLModal` fills `KindLabel`/`HasForce`/`HasCascade` from the kind map and defaults nil `Values`/`Dropdowns`, so early-error paths can pass empty data safely.
+- Create-form defaults (login/inherit/connlimit, owner = current user) are applied in `handleDDLModal` before rendering.
+- `alterPrefill` is best-effort: load current catalog values with raw queries, log and continue on failure. **Avoid sqlc regeneration** — prefer raw queries or existing sqlc queries (e.g. `GetSchemaGeneral`) for new catalog access.
+- Success protocol: `refreshDDLTree(w, folderID)` responds with `HX-Trigger {"ddl-refresh": "<tree container id>"}`; `static/js/ddl.js` re-fetches that container (folders stay expanded) and closes the modal after ~1.6 s.
+
+## Templates & frontend conventions
+
+- Partials auto-register by glob in `internal/web/views.go` (`InitTemplates`) — no manual registration needed.
+- Templates are parsed at **startup only**; `go build` will not catch syntax errors. Verify a new partial with a scratch `template.Parse`+`Execute` against sample data before finishing.
+- Modal partials render into `#modal-container` (swap target), disable the submit button via `hx-disabled-elt`, show an error banner, and re-render with the submitted values + live dropdowns on failure. Prefill with `{{ index .Values "field" }}`; dropdowns render via `range (index .Dropdowns "roles")` (keys: `roles`, plus `encodings`/`templates` for databases, `extensions`/`schemas` for extensions, `columns` for indexes).
+- **Tailwind is prebuilt/minified** (`static/tailwind.css`, embedded) and `npx tailwindcss` is not available — never add new utility classes. Add custom CSS to the `<style>` block in `templates/layouts/base.html` (e.g. `.ddl-col-row` grid) and only reuse class strings already present in existing templates (be aware that class-presence greps can false-negative on `.` / `/` / `:`).
+- Classic `static/js/*.js` scripts are non-module scripts loaded in `base.html` — no `import`; only `sql-editor.js`/`sql-formatter.js`/`chart-entry.js` feed the esbuild bundles. Cross-file wiring uses `window.*` helpers: `openCreateDDLDialog`, `openDropDDLDialog`, `openAlterDDLDialog`, `ddlFolderID(el, isCreate)`, `closeDDL`, `openPropertiesTab`, `openScriptTab`.
+- URL-context helpers live in `static/js/app.js`: `parseObjectContext` (tolerates `/children` and `/properties` suffixes and non-db URLs) and `objectNameFromURL` fallback — schema/table nodes carry no `data-name`, so derive the name from the node URL.
+- The context menu is `static/js/context-menu.js` `openMenu`: kind labels in the `createLabel` map, drop actions in `DROP_ITEMS`, alter actions in `ALTER_ITEMS`, category folders use `create-<kind>` menus (e.g. `create-table` → kind `table`). Node kinds come from `data-tree-menu` (`database`, `role`, `schema`, `table`, ...).
 
 ## Frontend bundling (tree shaking)
 
@@ -63,8 +95,15 @@ The server logs `Server started on http://localhost:8080` (container port; map t
 
 Air config changes are read on container start; restart the container to apply them.
 
+## Environment & reference infrastructure
+
+- Host shell is PowerShell on win32; `rg` is **not** installed — use the Grep/Glob tools or `Select-String` instead.
+- Running side-by-side for comparison/testing: `pgadmin_gui` (reference pgAdmin4 UI on :5050 — its docker logs are NOT the app's), `postgres_db` (:5432) and `postgres_db2` (:5433). The Go dev container is only present when started with `docker compose -f docker/docker-compose.dev.yml up`.
+
 ## Verification checklist
 
 - Go compiles: `go build ./cmd/server`.
+- Go is clean: `gofmt -w` on the files you touched, then `go vet ./internal/web/`. Note: `gofmt -l internal/web/` reports **pre-existing** unformatted files (`auth.go`, `history_stream.go`, `tree.go`, `workspace.go`) — never reformat those; keep only files you actually edited gofmt-clean.
+- Template changes: parse and execute the new/modified partials with a small scratch program (`go run` a temp `template.Parse`+`Execute` check with sample `ddlModalData`), because template errors surface only at runtime startup.
 - After JS/asset edits: run `npm run build:editor`, confirm both bundle sizes printed, then restart server.
 - Chart bundle should be ~166 KB (a full `chart.js/auto` bundle is ~200 KB) — if it grows to ~200 KB, tree shaking is broken (check `static/js/chart-entry.js` imports).
