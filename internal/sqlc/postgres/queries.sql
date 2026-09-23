@@ -510,3 +510,167 @@ JOIN pg_class tc ON tc.oid = i.indrelid
 JOIN pg_namespace n ON n.oid = tc.relnamespace
 WHERE n.nspname = $1 AND tc.relname = $2
 ORDER BY 1, 2;
+
+-- Plain-leaf object properties queries ("General + SQL" panel kinds without
+-- their own DDL yet: columns, constraints, RLS policies, rules, types,
+-- domains, casts, catalogs, event triggers, foreign data wrappers, languages,
+-- subscriptions).
+
+-- name: GetColumnDetail :one
+SELECT
+    c.column_name,
+    c.data_type,
+    c.is_nullable,
+    c.column_default,
+    c.character_maximum_length,
+    COALESCE(coll.collname, '') AS collation,
+    COALESCE(col_description(a.attrelid, a.attnum), '') AS comment
+FROM information_schema.columns c
+LEFT JOIN pg_attribute a ON a.attrelid = ($1 || '.' || $2)::regclass AND a.attname = c.column_name
+LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
+WHERE c.table_schema = $1 AND c.table_name = $2 AND c.column_name = $3
+LIMIT 1;
+
+-- name: GetConstraintDetail :one
+SELECT
+    c.conname,
+    c.contype::text AS constraint_type,
+    pg_get_constraintdef(c.oid, true) AS definition,
+    c.condeferrable,
+    c.condeferred
+FROM pg_constraint c
+JOIN pg_class t ON c.conrelid = t.oid
+JOIN pg_namespace n ON t.relnamespace = n.oid
+WHERE n.nspname = $1 AND t.relname = $2 AND c.conname = $3
+LIMIT 1;
+
+-- name: GetPolicyGeneral :one
+SELECT
+    p.permissive,
+    array_to_string(p.roles, ', ') AS roles,
+    p.cmd,
+    COALESCE(p.qual, '') AS using_expr,
+    COALESCE(p.with_check, '') AS with_check_expr
+FROM pg_policies p
+WHERE p.schemaname = $1 AND p.tablename = $2 AND p.policyname = $3
+LIMIT 1;
+
+-- name: GetRuleDefinition :one
+SELECT r.definition
+FROM pg_rules r
+WHERE r.schemaname = $1 AND r.tablename = $2 AND r.rulename = $3
+LIMIT 1;
+
+-- name: GetTypeGeneral :one
+SELECT
+    t.oid AS type_oid,
+    t.typtype::text AS type_category,
+    pg_get_userbyid(t.typowner) AS owner,
+    COALESCE(obj_description(t.oid, 'pg_type'), '') AS comment
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE n.nspname = $1 AND t.typname = $2 AND t.typtype IN ('c', 'e', 'r')
+LIMIT 1;
+
+-- name: ListEnumLabels :many
+SELECT e.enumlabel FROM pg_enum e
+WHERE e.enumtypid = $1
+ORDER BY e.enumsortorder;
+
+-- name: ListCompositeAttributes :many
+SELECT a.attname, format_type(a.atttypid, a.atttypmod) AS data_type
+FROM pg_attribute a
+WHERE a.attrelid = (SELECT typrelid FROM pg_type WHERE oid = $1)
+  AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY a.attnum;
+
+-- name: GetRangeSubtype :one
+SELECT format_type(r.rngsubtype, NULL) AS subtype
+FROM pg_range r
+WHERE r.rngtypid = $1
+LIMIT 1;
+
+-- name: GetDomainGeneral :one
+SELECT
+    t.oid AS type_oid,
+    format_type(t.typbasetype, t.typtypmod) AS base_type,
+    t.typnotnull AS not_null,
+    COALESCE(t.typdefault, '') AS default_value,
+    pg_get_userbyid(t.typowner) AS owner,
+    COALESCE(obj_description(t.oid, 'pg_type'), '') AS comment
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE n.nspname = $1 AND t.typname = $2 AND t.typtype = 'd'
+LIMIT 1;
+
+-- name: ListDomainConstraints :many
+SELECT c.conname, pg_get_constraintdef(c.oid, true) AS definition
+FROM pg_constraint c
+WHERE c.contypid = $1
+ORDER BY c.conname;
+
+-- name: ListCastsDetailed :many
+SELECT castsource::regtype::text AS source_type, casttarget::regtype::text AS target_type
+FROM pg_cast
+ORDER BY 1, 2;
+
+-- name: GetCastGeneral :one
+SELECT
+    CASE c.castcontext WHEN 'e' THEN 'explicit' WHEN 'a' THEN 'assignment' ELSE 'implicit' END AS context,
+    CASE c.castmethod WHEN 'f' THEN 'function' WHEN 'i' THEN 'inout' ELSE 'binary coercible' END AS method,
+    c.castfunc::regproc::text AS function_name,
+    COALESCE(obj_description(c.oid, 'pg_cast'), '') AS comment
+FROM pg_cast c
+WHERE c.castsource = $1::regtype AND c.casttarget = $2::regtype
+LIMIT 1;
+
+-- name: GetEventTriggerGeneral :one
+SELECT
+    t.evtevent,
+    CASE t.evtenabled
+        WHEN 'O' THEN 'origin' WHEN 'D' THEN 'disabled'
+        WHEN 'R' THEN 'replica' WHEN 'A' THEN 'always'
+        ELSE t.evtenabled::text
+    END AS enabled,
+    pg_get_userbyid(t.evtowner) AS owner,
+    t.evtfoid::regproc::text AS function_name,
+    COALESCE(array_to_string(t.evttags, ', '), '') AS tags,
+    COALESCE(obj_description(t.oid, 'pg_event_trigger'), '') AS comment
+FROM pg_event_trigger t
+WHERE t.evtname = $1
+LIMIT 1;
+
+-- name: GetForeignDataWrapperGeneral :one
+SELECT
+    pg_get_userbyid(f.fdwowner) AS owner,
+    f.fdwhandler::regproc::text AS handler,
+    f.fdwvalidator::regproc::text AS validator,
+    COALESCE(array_to_string(f.fdwoptions, ', '), '') AS options,
+    COALESCE(obj_description(f.oid, 'pg_foreign_data_wrapper'), '') AS comment
+FROM pg_foreign_data_wrapper f
+WHERE f.fdwname = $1
+LIMIT 1;
+
+-- name: GetLanguageGeneral :one
+SELECT
+    l.lanpltrusted AS trusted,
+    pg_get_userbyid(l.lanowner) AS owner,
+    l.lanplcallfoid::regproc::text AS call_handler,
+    l.laninline::regproc::text AS inline_handler,
+    l.lanvalidator::regproc::text AS validator,
+    COALESCE(obj_description(l.oid, 'pg_language'), '') AS comment
+FROM pg_language l
+WHERE l.lanname = $1
+LIMIT 1;
+
+-- name: GetSubscriptionGeneral :one
+SELECT
+    pg_get_userbyid(s.subowner) AS owner,
+    s.subenabled AS enabled,
+    array_to_string(s.subpublications, ', ') AS publications,
+    COALESCE(s.subslotname, '') AS slot_name,
+    COALESCE(obj_description(s.oid, 'pg_subscription'), '') AS comment
+FROM pg_subscription s
+WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+  AND s.subname = $1
+LIMIT 1;

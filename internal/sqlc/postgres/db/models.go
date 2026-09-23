@@ -36,8 +36,12 @@ type PgAvailableExtension struct {
 }
 
 type PgCast struct {
-	Castsource int32
-	Casttarget int32
+	Oid         int32
+	Castsource  int32
+	Casttarget  int32
+	Castfunc    int32
+	Castcontext string
+	Castmethod  string
 }
 
 type PgCharacterSet struct {
@@ -70,6 +74,7 @@ type PgConstraint struct {
 	Contype       string
 	Conrelid      int32
 	Confrelid     int32
+	Contypid      int32
 	Conkey        []int32
 	Condeferrable bool
 	Condeferred   bool
@@ -80,6 +85,7 @@ type PgDatabase struct {
 	Datname       string
 	Datallowconn  bool
 	Datistemplate bool
+	Datacl        []interface{}
 }
 
 type PgDepend struct {
@@ -91,8 +97,20 @@ type PgDepend struct {
 	Deptype     string
 }
 
+type PgEnum struct {
+	Enumtypid     int32
+	Enumlabel     string
+	Enumsortorder float32
+}
+
 type PgEventTrigger struct {
-	Evtname string
+	Oid        int32
+	Evtname    string
+	Evtevent   string
+	Evtenabled string
+	Evtowner   int32
+	Evtfoid    int32
+	Evttags    []string
 }
 
 type PgExtension struct {
@@ -100,7 +118,12 @@ type PgExtension struct {
 }
 
 type PgForeignDataWrapper struct {
-	Fdwname string
+	Oid          int32
+	Fdwname      string
+	Fdwowner     int32
+	Fdwhandler   int32
+	Fdwvalidator int32
+	Fdwoptions   []string
 }
 
 type PgIndex struct {
@@ -112,8 +135,14 @@ type PgIndex struct {
 }
 
 type PgLanguage struct {
-	Lanname string
-	Lanispl bool
+	Oid           int32
+	Lanname       string
+	Lanispl       bool
+	Lanpltrusted  bool
+	Lanowner      int32
+	Lanplcallfoid int32
+	Laninline     int32
+	Lanvalidator  int32
 }
 
 type PgMatview struct {
@@ -132,6 +161,11 @@ type PgPolicy struct {
 	Policyname string
 	Schemaname string
 	Tablename  string
+	Permissive string
+	Roles      []string
+	Cmd        string
+	Qual       pgtype.Text
+	WithCheck  pgtype.Text
 }
 
 type PgProc struct {
@@ -145,10 +179,16 @@ type PgProc struct {
 	Proisstrict  bool
 	Proparallel  string
 	Proowner     int32
+	Proacl       []interface{}
 }
 
 type PgPublication struct {
 	Pubname string
+}
+
+type PgRange struct {
+	Rngtypid   int32
+	Rngsubtype int32
 }
 
 type PgRewrite struct {
@@ -164,6 +204,7 @@ type PgRule struct {
 	Rulename   string
 	Schemaname string
 	Tablename  string
+	Definition string
 }
 
 type PgSequence struct {
@@ -198,8 +239,13 @@ type PgStatUserTable struct {
 }
 
 type PgSubscription struct {
-	Subname string
-	Subdbid int32
+	Oid             int32
+	Subname         string
+	Subdbid         int32
+	Subowner        int32
+	Subenabled      bool
+	Subpublications []string
+	Subslotname     pgtype.Text
 }
 
 type PgTable struct {
@@ -213,6 +259,7 @@ type PgTable struct {
 type PgTablespace struct {
 	Oid     int32
 	Spcname string
+	Spcacl  []interface{}
 }
 
 type PgTrigger struct {
@@ -225,9 +272,16 @@ type PgTrigger struct {
 }
 
 type PgType struct {
+	Oid          int32
 	Typname      string
 	Typtype      string
 	Typnamespace int32
+	Typowner     int32
+	Typrelid     pgtype.Int4
+	Typbasetype  int32
+	Typtypmod    int32
+	Typnotnull   bool
+	Typdefault   pgtype.Text
 }
 
 type PgView struct {

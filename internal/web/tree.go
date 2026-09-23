@@ -190,6 +190,23 @@ func getString(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// constraintTypeLabel renders a pg_constraint.contype code as the word
+// ListConstraints already uses for the same codes in its formatted labels.
+func constraintTypeLabel(contype string) string {
+	switch contype {
+	case "p":
+		return "primary key"
+	case "f":
+		return "foreign key"
+	case "u":
+		return "unique"
+	case "c":
+		return "check"
+	default:
+		return contype
+	}
+}
+
 var dbCategories = []category{
 	{Slug: "casts", Label: "Casts", Icon: "🔁", Empty: "No casts found.", NumArgs: 0,
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, _ ...string) ([]string, error) {

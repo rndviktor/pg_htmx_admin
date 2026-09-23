@@ -172,6 +172,134 @@ func (q *Queries) CountTableObjects(ctx context.Context, arg CountTableObjectsPa
 	return items, nil
 }
 
+const getCastGeneral = `-- name: GetCastGeneral :one
+SELECT
+    CASE c.castcontext WHEN 'e' THEN 'explicit' WHEN 'a' THEN 'assignment' ELSE 'implicit' END AS context,
+    CASE c.castmethod WHEN 'f' THEN 'function' WHEN 'i' THEN 'inout' ELSE 'binary coercible' END AS method,
+    c.castfunc::regproc::text AS function_name,
+    COALESCE(obj_description(c.oid, 'pg_cast'), '') AS comment
+FROM pg_cast c
+WHERE c.castsource = $1::regtype AND c.casttarget = $2::regtype
+LIMIT 1
+`
+
+type GetCastGeneralParams struct {
+	Column1 interface{}
+	Column2 interface{}
+}
+
+type GetCastGeneralRow struct {
+	Context      string
+	Method       string
+	FunctionName string
+	Comment      interface{}
+}
+
+func (q *Queries) GetCastGeneral(ctx context.Context, arg GetCastGeneralParams) (GetCastGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getCastGeneral, arg.Column1, arg.Column2)
+	var i GetCastGeneralRow
+	err := row.Scan(
+		&i.Context,
+		&i.Method,
+		&i.FunctionName,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getColumnDetail = `-- name: GetColumnDetail :one
+
+SELECT
+    c.column_name,
+    c.data_type,
+    c.is_nullable,
+    c.column_default,
+    c.character_maximum_length,
+    COALESCE(coll.collname, '') AS collation,
+    COALESCE(col_description(a.attrelid, a.attnum), '') AS comment
+FROM information_schema.columns c
+LEFT JOIN pg_attribute a ON a.attrelid = ($1 || '.' || $2)::regclass AND a.attname = c.column_name
+LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
+WHERE c.table_schema = $1 AND c.table_name = $2 AND c.column_name = $3
+LIMIT 1
+`
+
+type GetColumnDetailParams struct {
+	Column1    pgtype.Text
+	Column2    pgtype.Text
+	ColumnName interface{}
+}
+
+type GetColumnDetailRow struct {
+	ColumnName             interface{}
+	DataType               interface{}
+	IsNullable             interface{}
+	ColumnDefault          interface{}
+	CharacterMaximumLength interface{}
+	Collation              string
+	Comment                interface{}
+}
+
+// Plain-leaf object properties queries ("General + SQL" panel kinds without
+// their own DDL yet: columns, constraints, RLS policies, rules, types,
+// domains, casts, catalogs, event triggers, foreign data wrappers, languages,
+// subscriptions).
+func (q *Queries) GetColumnDetail(ctx context.Context, arg GetColumnDetailParams) (GetColumnDetailRow, error) {
+	row := q.db.QueryRow(ctx, getColumnDetail, arg.Column1, arg.Column2, arg.ColumnName)
+	var i GetColumnDetailRow
+	err := row.Scan(
+		&i.ColumnName,
+		&i.DataType,
+		&i.IsNullable,
+		&i.ColumnDefault,
+		&i.CharacterMaximumLength,
+		&i.Collation,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getConstraintDetail = `-- name: GetConstraintDetail :one
+SELECT
+    c.conname,
+    c.contype::text AS constraint_type,
+    pg_get_constraintdef(c.oid, true) AS definition,
+    c.condeferrable,
+    c.condeferred
+FROM pg_constraint c
+JOIN pg_class t ON c.conrelid = t.oid
+JOIN pg_namespace n ON t.relnamespace = n.oid
+WHERE n.nspname = $1 AND t.relname = $2 AND c.conname = $3
+LIMIT 1
+`
+
+type GetConstraintDetailParams struct {
+	Nspname string
+	Relname string
+	Conname string
+}
+
+type GetConstraintDetailRow struct {
+	Conname        string
+	ConstraintType string
+	Definition     string
+	Condeferrable  bool
+	Condeferred    bool
+}
+
+func (q *Queries) GetConstraintDetail(ctx context.Context, arg GetConstraintDetailParams) (GetConstraintDetailRow, error) {
+	row := q.db.QueryRow(ctx, getConstraintDetail, arg.Nspname, arg.Relname, arg.Conname)
+	var i GetConstraintDetailRow
+	err := row.Scan(
+		&i.Conname,
+		&i.ConstraintType,
+		&i.Definition,
+		&i.Condeferrable,
+		&i.Condeferred,
+	)
+	return i, err
+}
+
 const getCurrentUser = `-- name: GetCurrentUser :one
 SELECT current_user
 `
@@ -181,6 +309,121 @@ func (q *Queries) GetCurrentUser(ctx context.Context) (interface{}, error) {
 	var column_1 interface{}
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const getDomainGeneral = `-- name: GetDomainGeneral :one
+SELECT
+    t.oid AS type_oid,
+    format_type(t.typbasetype, t.typtypmod) AS base_type,
+    t.typnotnull AS not_null,
+    COALESCE(t.typdefault, '') AS default_value,
+    pg_get_userbyid(t.typowner) AS owner,
+    COALESCE(obj_description(t.oid, 'pg_type'), '') AS comment
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE n.nspname = $1 AND t.typname = $2 AND t.typtype = 'd'
+LIMIT 1
+`
+
+type GetDomainGeneralParams struct {
+	Nspname string
+	Typname string
+}
+
+type GetDomainGeneralRow struct {
+	TypeOid      int32
+	BaseType     string
+	NotNull      bool
+	DefaultValue string
+	Owner        string
+	Comment      interface{}
+}
+
+func (q *Queries) GetDomainGeneral(ctx context.Context, arg GetDomainGeneralParams) (GetDomainGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getDomainGeneral, arg.Nspname, arg.Typname)
+	var i GetDomainGeneralRow
+	err := row.Scan(
+		&i.TypeOid,
+		&i.BaseType,
+		&i.NotNull,
+		&i.DefaultValue,
+		&i.Owner,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getEventTriggerGeneral = `-- name: GetEventTriggerGeneral :one
+SELECT
+    t.evtevent,
+    CASE t.evtenabled
+        WHEN 'O' THEN 'origin' WHEN 'D' THEN 'disabled'
+        WHEN 'R' THEN 'replica' WHEN 'A' THEN 'always'
+        ELSE t.evtenabled::text
+    END AS enabled,
+    pg_get_userbyid(t.evtowner) AS owner,
+    t.evtfoid::regproc::text AS function_name,
+    COALESCE(array_to_string(t.evttags, ', '), '') AS tags,
+    COALESCE(obj_description(t.oid, 'pg_event_trigger'), '') AS comment
+FROM pg_event_trigger t
+WHERE t.evtname = $1
+LIMIT 1
+`
+
+type GetEventTriggerGeneralRow struct {
+	Evtevent     string
+	Enabled      string
+	Owner        string
+	FunctionName string
+	Tags         interface{}
+	Comment      interface{}
+}
+
+func (q *Queries) GetEventTriggerGeneral(ctx context.Context, evtname string) (GetEventTriggerGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getEventTriggerGeneral, evtname)
+	var i GetEventTriggerGeneralRow
+	err := row.Scan(
+		&i.Evtevent,
+		&i.Enabled,
+		&i.Owner,
+		&i.FunctionName,
+		&i.Tags,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getForeignDataWrapperGeneral = `-- name: GetForeignDataWrapperGeneral :one
+SELECT
+    pg_get_userbyid(f.fdwowner) AS owner,
+    f.fdwhandler::regproc::text AS handler,
+    f.fdwvalidator::regproc::text AS validator,
+    COALESCE(array_to_string(f.fdwoptions, ', '), '') AS options,
+    COALESCE(obj_description(f.oid, 'pg_foreign_data_wrapper'), '') AS comment
+FROM pg_foreign_data_wrapper f
+WHERE f.fdwname = $1
+LIMIT 1
+`
+
+type GetForeignDataWrapperGeneralRow struct {
+	Owner     string
+	Handler   string
+	Validator string
+	Options   interface{}
+	Comment   interface{}
+}
+
+func (q *Queries) GetForeignDataWrapperGeneral(ctx context.Context, fdwname string) (GetForeignDataWrapperGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getForeignDataWrapperGeneral, fdwname)
+	var i GetForeignDataWrapperGeneralRow
+	err := row.Scan(
+		&i.Owner,
+		&i.Handler,
+		&i.Validator,
+		&i.Options,
+		&i.Comment,
+	)
+	return i, err
 }
 
 const getFunctionDefinition = `-- name: GetFunctionDefinition :one
@@ -347,6 +590,42 @@ func (q *Queries) GetIndexGeneral(ctx context.Context, arg GetIndexGeneralParams
 		&i.AccessMethod,
 		&i.Owner,
 		&i.RelationSize,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getLanguageGeneral = `-- name: GetLanguageGeneral :one
+SELECT
+    l.lanpltrusted AS trusted,
+    pg_get_userbyid(l.lanowner) AS owner,
+    l.lanplcallfoid::regproc::text AS call_handler,
+    l.laninline::regproc::text AS inline_handler,
+    l.lanvalidator::regproc::text AS validator,
+    COALESCE(obj_description(l.oid, 'pg_language'), '') AS comment
+FROM pg_language l
+WHERE l.lanname = $1
+LIMIT 1
+`
+
+type GetLanguageGeneralRow struct {
+	Trusted       bool
+	Owner         string
+	CallHandler   string
+	InlineHandler string
+	Validator     string
+	Comment       interface{}
+}
+
+func (q *Queries) GetLanguageGeneral(ctx context.Context, lanname string) (GetLanguageGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getLanguageGeneral, lanname)
+	var i GetLanguageGeneralRow
+	err := row.Scan(
+		&i.Trusted,
+		&i.Owner,
+		&i.CallHandler,
+		&i.InlineHandler,
+		&i.Validator,
 		&i.Comment,
 	)
 	return i, err
@@ -585,6 +864,45 @@ func (q *Queries) GetObjectPrivileges(ctx context.Context, arg GetObjectPrivileg
 	return items, nil
 }
 
+const getPolicyGeneral = `-- name: GetPolicyGeneral :one
+SELECT
+    p.permissive,
+    array_to_string(p.roles, ', ') AS roles,
+    p.cmd,
+    COALESCE(p.qual, '') AS using_expr,
+    COALESCE(p.with_check, '') AS with_check_expr
+FROM pg_policies p
+WHERE p.schemaname = $1 AND p.tablename = $2 AND p.policyname = $3
+LIMIT 1
+`
+
+type GetPolicyGeneralParams struct {
+	Schemaname string
+	Tablename  string
+	Policyname string
+}
+
+type GetPolicyGeneralRow struct {
+	Permissive    string
+	Roles         string
+	Cmd           string
+	UsingExpr     string
+	WithCheckExpr string
+}
+
+func (q *Queries) GetPolicyGeneral(ctx context.Context, arg GetPolicyGeneralParams) (GetPolicyGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getPolicyGeneral, arg.Schemaname, arg.Tablename, arg.Policyname)
+	var i GetPolicyGeneralRow
+	err := row.Scan(
+		&i.Permissive,
+		&i.Roles,
+		&i.Cmd,
+		&i.UsingExpr,
+		&i.WithCheckExpr,
+	)
+	return i, err
+}
+
 const getPrimaryKeyColumns = `-- name: GetPrimaryKeyColumns :many
 SELECT c.conname, a.attname
 FROM pg_constraint c
@@ -624,6 +942,40 @@ func (q *Queries) GetPrimaryKeyColumns(ctx context.Context, arg GetPrimaryKeyCol
 		return nil, err
 	}
 	return items, nil
+}
+
+const getRangeSubtype = `-- name: GetRangeSubtype :one
+SELECT format_type(r.rngsubtype, NULL) AS subtype
+FROM pg_range r
+WHERE r.rngtypid = $1
+LIMIT 1
+`
+
+func (q *Queries) GetRangeSubtype(ctx context.Context, rngtypid int32) (string, error) {
+	row := q.db.QueryRow(ctx, getRangeSubtype, rngtypid)
+	var subtype string
+	err := row.Scan(&subtype)
+	return subtype, err
+}
+
+const getRuleDefinition = `-- name: GetRuleDefinition :one
+SELECT r.definition
+FROM pg_rules r
+WHERE r.schemaname = $1 AND r.tablename = $2 AND r.rulename = $3
+LIMIT 1
+`
+
+type GetRuleDefinitionParams struct {
+	Schemaname string
+	Tablename  string
+	Rulename   string
+}
+
+func (q *Queries) GetRuleDefinition(ctx context.Context, arg GetRuleDefinitionParams) (string, error) {
+	row := q.db.QueryRow(ctx, getRuleDefinition, arg.Schemaname, arg.Tablename, arg.Rulename)
+	var definition string
+	err := row.Scan(&definition)
+	return definition, err
 }
 
 const getSchemaGeneral = `-- name: GetSchemaGeneral :one
@@ -700,6 +1052,40 @@ func (q *Queries) GetSequenceGeneral(ctx context.Context, arg GetSequenceGeneral
 		&i.LastValue,
 		&i.Owner,
 		&i.RelationSize,
+		&i.Comment,
+	)
+	return i, err
+}
+
+const getSubscriptionGeneral = `-- name: GetSubscriptionGeneral :one
+SELECT
+    pg_get_userbyid(s.subowner) AS owner,
+    s.subenabled AS enabled,
+    array_to_string(s.subpublications, ', ') AS publications,
+    COALESCE(s.subslotname, '') AS slot_name,
+    COALESCE(obj_description(s.oid, 'pg_subscription'), '') AS comment
+FROM pg_subscription s
+WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+  AND s.subname = $1
+LIMIT 1
+`
+
+type GetSubscriptionGeneralRow struct {
+	Owner        string
+	Enabled      bool
+	Publications string
+	SlotName     string
+	Comment      interface{}
+}
+
+func (q *Queries) GetSubscriptionGeneral(ctx context.Context, subname string) (GetSubscriptionGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriptionGeneral, subname)
+	var i GetSubscriptionGeneralRow
+	err := row.Scan(
+		&i.Owner,
+		&i.Enabled,
+		&i.Publications,
+		&i.SlotName,
 		&i.Comment,
 	)
 	return i, err
@@ -1098,6 +1484,42 @@ func (q *Queries) GetTriggerGeneral(ctx context.Context, arg GetTriggerGeneralPa
 	return i, err
 }
 
+const getTypeGeneral = `-- name: GetTypeGeneral :one
+SELECT
+    t.oid AS type_oid,
+    t.typtype::text AS type_category,
+    pg_get_userbyid(t.typowner) AS owner,
+    COALESCE(obj_description(t.oid, 'pg_type'), '') AS comment
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE n.nspname = $1 AND t.typname = $2 AND t.typtype IN ('c', 'e', 'r')
+LIMIT 1
+`
+
+type GetTypeGeneralParams struct {
+	Nspname string
+	Typname string
+}
+
+type GetTypeGeneralRow struct {
+	TypeOid      int32
+	TypeCategory string
+	Owner        string
+	Comment      interface{}
+}
+
+func (q *Queries) GetTypeGeneral(ctx context.Context, arg GetTypeGeneralParams) (GetTypeGeneralRow, error) {
+	row := q.db.QueryRow(ctx, getTypeGeneral, arg.Nspname, arg.Typname)
+	var i GetTypeGeneralRow
+	err := row.Scan(
+		&i.TypeOid,
+		&i.TypeCategory,
+		&i.Owner,
+		&i.Comment,
+	)
+	return i, err
+}
+
 const getViewDefinition = `-- name: GetViewDefinition :one
 SELECT pg_get_viewdef(c.oid, true)::text AS definition
 FROM pg_class c
@@ -1207,6 +1629,37 @@ func (q *Queries) ListCasts(ctx context.Context) ([]interface{}, error) {
 	return items, nil
 }
 
+const listCastsDetailed = `-- name: ListCastsDetailed :many
+SELECT castsource::regtype::text AS source_type, casttarget::regtype::text AS target_type
+FROM pg_cast
+ORDER BY 1, 2
+`
+
+type ListCastsDetailedRow struct {
+	SourceType string
+	TargetType string
+}
+
+func (q *Queries) ListCastsDetailed(ctx context.Context) ([]ListCastsDetailedRow, error) {
+	rows, err := q.db.Query(ctx, listCastsDetailed)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCastsDetailedRow
+	for rows.Next() {
+		var i ListCastsDetailedRow
+		if err := rows.Scan(&i.SourceType, &i.TargetType); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCatalogs = `-- name: ListCatalogs :many
 SELECT nspname FROM pg_namespace
 WHERE nspname = 'information_schema' OR nspname LIKE 'pg\_%'
@@ -1226,6 +1679,39 @@ func (q *Queries) ListCatalogs(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		items = append(items, nspname)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCompositeAttributes = `-- name: ListCompositeAttributes :many
+SELECT a.attname, format_type(a.atttypid, a.atttypmod) AS data_type
+FROM pg_attribute a
+WHERE a.attrelid = (SELECT typrelid FROM pg_type WHERE oid = $1)
+  AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY a.attnum
+`
+
+type ListCompositeAttributesRow struct {
+	Attname  string
+	DataType string
+}
+
+func (q *Queries) ListCompositeAttributes(ctx context.Context, oid int32) ([]ListCompositeAttributesRow, error) {
+	rows, err := q.db.Query(ctx, listCompositeAttributes, oid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCompositeAttributesRow
+	for rows.Next() {
+		var i ListCompositeAttributesRow
+		if err := rows.Scan(&i.Attname, &i.DataType); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1327,6 +1813,38 @@ func (q *Queries) ListDatabases(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listDomainConstraints = `-- name: ListDomainConstraints :many
+SELECT c.conname, pg_get_constraintdef(c.oid, true) AS definition
+FROM pg_constraint c
+WHERE c.contypid = $1
+ORDER BY c.conname
+`
+
+type ListDomainConstraintsRow struct {
+	Conname    string
+	Definition string
+}
+
+func (q *Queries) ListDomainConstraints(ctx context.Context, contypid int32) ([]ListDomainConstraintsRow, error) {
+	rows, err := q.db.Query(ctx, listDomainConstraints, contypid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDomainConstraintsRow
+	for rows.Next() {
+		var i ListDomainConstraintsRow
+		if err := rows.Scan(&i.Conname, &i.Definition); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDomains = `-- name: ListDomains :many
 SELECT t.typname FROM pg_type t
 JOIN pg_namespace n ON t.typnamespace = n.oid
@@ -1372,6 +1890,32 @@ func (q *Queries) ListEncodings(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEnumLabels = `-- name: ListEnumLabels :many
+SELECT e.enumlabel FROM pg_enum e
+WHERE e.enumtypid = $1
+ORDER BY e.enumsortorder
+`
+
+func (q *Queries) ListEnumLabels(ctx context.Context, enumtypid int32) ([]string, error) {
+	rows, err := q.db.Query(ctx, listEnumLabels, enumtypid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var enumlabel string
+		if err := rows.Scan(&enumlabel); err != nil {
+			return nil, err
+		}
+		items = append(items, enumlabel)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

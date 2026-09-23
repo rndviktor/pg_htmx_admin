@@ -13,7 +13,7 @@ The repo-level behavioral rules live in `.claude/CLAUDE.md` (read it): idiomatic
 
 ## Roadmap & documentation
 
-- `docs/pgadmin4-feature-gap.md` compares this app against pgAdmin4 (P1–P5 by priority) and is the source of truth for what to build next (current suggested next step: #4 View/Edit Data editable grid).
+- `docs/pgadmin4-feature-gap.md` compares this app against pgAdmin4 (P1–P5 by priority) and is the source of truth for what to build next (current suggested next step: #3 View/Edit Data editable grid).
 - After implementing a feature: move it under “What this app already has” and shrink the corresponding P item. Keep cited `file:line` references accurate, and the reader-facing docs in sync with reality.
 
 ## DDL framework conventions

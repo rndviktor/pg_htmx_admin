@@ -27,10 +27,17 @@ that is missing, ordered by priority.
   views, materialized views, sequences, functions, indexes, triggers and
   schemas — column types/defaults/nullability, constraints, ownership,
   privileges, comments, dependencies and statistics. Databases, roles,
-  tablespaces, procedures, extensions and publications now get a read-only
+  tablespaces, procedures, extensions and publications get a read-only
   General + SQL properties panel too (owner/attributes plus a reconstructed
-  CREATE script; procedures reuse the function definition query directly)
-  (`internal/web/properties.go`, `templates/partials/properties_panel.html`).
+  CREATE script; procedures reuse the function definition query directly).
+  **Every remaining "plain leaf" object kind now has its own General + SQL
+  panel too**: columns, constraints, RLS policies, rules, types (composite/
+  enum/range), domains, casts, catalogs (system schemas), event triggers,
+  foreign data wrappers, languages and subscriptions. The Privileges tab is
+  also wired up for database, tablespace, function and procedure (role,
+  extension and publication are not — Postgres has no ACL/GRANT concept for
+  those three object kinds) (`internal/web/properties.go`,
+  `templates/partials/properties_panel.html`).
 - **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
   for 13 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index and
@@ -67,16 +74,7 @@ that is missing, ordered by priority.
    Table and `ALTER TABLE` column DDL — add/drop/alter column), rules, RLS
    policies, table partitioning, and richer index/trigger *create* options
    (constraint options, `USING` storage parameters).
-2. **Properties coverage is partial** — databases, roles, tablespaces,
-   procedures, extensions and publications now have a General + SQL
-   properties panel, but there is still no panel at all for the plain leaves
-   (columns, constraints, RLS policies, rules, types, domains, casts,
-   catalogs, event triggers, foreign data wrappers, languages, subscriptions).
-   Tabs are also partial: Constraints only on tables; Privileges only on
-   table/view/materialized-view/sequence/schema (not yet on the six kinds
-   above, or on function/procedure); Statistics and Dependencies only on
-   table/view/materialized-view.
-3. **Remaining context-menu gaps** — Disconnect / Connect / Try to reconnect,
+2. **Remaining context-menu gaps** — Disconnect / Connect / Try to reconnect,
    Create (database/role/tablespace/table), Drop (13 kinds, with CASCADE/FORCE),
    Alter (13 kinds) and Properties/Scripts/Query Tool are all present, but
    still missing: DROP SCRIPT (generate without executing), a Drop action for
@@ -86,14 +84,14 @@ that is missing, ordered by priority.
 
 ### P2 — Data editing + maintenance
 
-4. **View/Edit Data tool** — editable grid for tables and views with
+3. **View/Edit Data tool** — editable grid for tables and views with
    insert/update/delete, in-cell editing, sorting, filtering, pagination and
    CSV copy/export. The current result grid renders text only
    (`internal/web/handlers.go`, `templates/partials/query_result.html`).
-5. **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
+4. **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
    **Maintenance dialog** (VACUUM, ANALYZE, REINDEX, CLUSTER); **Storage
    Manager** for server-side backup files.
-6. **Query tool power features** — transaction control (BEGIN / COMMIT /
+5. **Query tool power features** — transaction control (BEGIN / COMMIT /
    ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
    text in `internal/web/handlers.go`), multiple result sets, execute a
    selected statement, query timings, download results as CSV, server-side
@@ -105,35 +103,35 @@ that is missing, ordered by priority.
 
 ### P3 — Management depth
 
-7. **Role & privilege management** plus a **Grant Wizard** (grant/revoke
+6. **Role & privilege management** plus a **Grant Wizard** (grant/revoke
    privileges across objects). Roles can be created, altered (login, superuser,
    createdb/createrole, inherit, replication, connlimit, valid-until,
    password) and dropped, but there is no role-membership editor and no
    privilege-editing UI (properties only *display* ACLs).
-8. **Import/Export data dialog** (bulk CSV load/unload).
-9. **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
+7. **Import/Export data dialog** (bulk CSV load/unload).
+8. **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
    session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
    for a single database.
 
 ### P4 — Developer tools
 
-10. **Global object search** (pgAdmin's `Search objects`).
-11. **Schema Diff** — compare and synchronize two databases or schemas and
+9. **Global object search** (pgAdmin's `Search objects`).
+10. **Schema Diff** — compare and synchronize two databases or schemas and
     generate migration scripts.
-12. **ERD tool** and **PSQL terminal tool**.
-13. **Function Debugger** (pldebugger integration).
+11. **ERD tool** and **PSQL terminal tool**.
+12. **Function Debugger** (pldebugger integration).
 
 ### P5 — Platform, security and coverage
 
-14. **Real authentication & user management** — multiuser accounts, admin
+13. **Real authentication & user management** — multiuser accounts, admin
     roles, master password / encrypted stored passwords (currently stored in
     plaintext, `internal/web/server_manager.go`), 2FA, LDAP/OAuth/webserver
     auth sources; the session signing key is a hardcoded placeholder
     (`internal/web/auth.go`).
-15. **Fuller object coverage** — foreign tables, user mappings, collations,
+14. **Fuller object coverage** — foreign tables, user mappings, collations,
     FTS configurations/dictionaries/parsers/templates, operators and operator
     classes/families, statistics objects, aggregates.
-16. **Preferences UI, themes, keyboard shortcuts, drag-and-drop of objects into
+15. **Preferences UI, themes, keyboard shortcuts, drag-and-drop of objects into
     the query editor, localization.**
 
 ## Suggested starting points
@@ -143,6 +141,5 @@ The two highest-leverage projects that build most naturally on the existing
 
 - **#1: `ALTER TABLE` column DDL** (add/drop/alter column, foreign key /
   exclusion constraints, generated columns) to round out table ALTER beyond
-  owner/schema/rename, plus **#2: properties coverage** for the remaining
-  object kinds, or
-- **#4: View/Edit Data** editable grid.
+  owner/schema/rename, or
+- **#3: View/Edit Data** editable grid.

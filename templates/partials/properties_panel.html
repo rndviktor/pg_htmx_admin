@@ -22,7 +22,7 @@
     {{ if or (eq .Kind "table") (eq .Kind "materialized-view") }}
     <button data-prop-tab="Indexes" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Indexes</button>
     {{ end }}
-    {{ if or (eq .Kind "table") (eq .Kind "view") (eq .Kind "materialized-view") (eq .Kind "sequence") (eq .Kind "schema") }}
+    {{ if or (eq .Kind "table") (eq .Kind "view") (eq .Kind "materialized-view") (eq .Kind "sequence") (eq .Kind "schema") (eq .Kind "database") (eq .Kind "tablespace") (eq .Kind "function") (eq .Kind "procedure") }}
     <button data-prop-tab="Privileges" class="prop-tab px-3 py-1.5 border-r border-gray-700 border-t-2 border-t-transparent text-gray-400 hover:text-gray-200 font-normal">Privileges</button>
     {{ end }}
     {{ if or (eq .Kind "table") (eq .Kind "materialized-view") }}

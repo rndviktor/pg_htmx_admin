@@ -6,7 +6,8 @@ CREATE TABLE pg_database (
     oid SERIAL PRIMARY KEY,
     datname TEXT NOT NULL,
     datallowconn BOOLEAN NOT NULL,
-    datistemplate BOOLEAN NOT NULL
+    datistemplate BOOLEAN NOT NULL,
+    datacl aclitem[]
 );
 
 CREATE TABLE pg_roles (
@@ -15,12 +16,17 @@ CREATE TABLE pg_roles (
 
 CREATE TABLE pg_tablespace (
     oid SERIAL PRIMARY KEY,
-    spcname TEXT NOT NULL
+    spcname TEXT NOT NULL,
+    spcacl aclitem[]
 );
 
 CREATE TABLE pg_cast (
+    oid SERIAL PRIMARY KEY,
     castsource INTEGER NOT NULL,
-    casttarget INTEGER NOT NULL
+    casttarget INTEGER NOT NULL,
+    castfunc INTEGER NOT NULL,
+    castcontext CHAR NOT NULL,
+    castmethod CHAR NOT NULL
 );
 
 CREATE TABLE pg_namespace (
@@ -31,7 +37,13 @@ CREATE TABLE pg_namespace (
 );
 
 CREATE TABLE pg_event_trigger (
-    evtname TEXT NOT NULL
+    oid SERIAL PRIMARY KEY,
+    evtname TEXT NOT NULL,
+    evtevent TEXT NOT NULL,
+    evtenabled CHAR NOT NULL,
+    evtowner INTEGER NOT NULL,
+    evtfoid INTEGER NOT NULL,
+    evttags TEXT[]
 );
 
 CREATE TABLE pg_extension (
@@ -44,12 +56,23 @@ CREATE TABLE pg_available_extensions (
 );
 
 CREATE TABLE pg_foreign_data_wrapper (
-    fdwname TEXT NOT NULL
+    oid SERIAL PRIMARY KEY,
+    fdwname TEXT NOT NULL,
+    fdwowner INTEGER NOT NULL,
+    fdwhandler INTEGER NOT NULL,
+    fdwvalidator INTEGER NOT NULL,
+    fdwoptions TEXT[]
 );
 
 CREATE TABLE pg_language (
+    oid SERIAL PRIMARY KEY,
     lanname TEXT NOT NULL,
-    lanispl BOOLEAN NOT NULL
+    lanispl BOOLEAN NOT NULL,
+    lanpltrusted BOOLEAN NOT NULL,
+    lanowner INTEGER NOT NULL,
+    lanplcallfoid INTEGER NOT NULL,
+    laninline INTEGER NOT NULL,
+    lanvalidator INTEGER NOT NULL
 );
 
 CREATE TABLE pg_publication (
@@ -57,8 +80,13 @@ CREATE TABLE pg_publication (
 );
 
 CREATE TABLE pg_subscription (
+    oid SERIAL PRIMARY KEY,
     subname TEXT NOT NULL,
-    subdbid INTEGER NOT NULL
+    subdbid INTEGER NOT NULL,
+    subowner INTEGER NOT NULL,
+    subenabled BOOLEAN NOT NULL,
+    subpublications TEXT[],
+    subslotname TEXT
 );
 
 CREATE TABLE pg_tables (
@@ -102,13 +130,32 @@ CREATE TABLE pg_proc (
     prosecdef BOOLEAN NOT NULL,
     proisstrict BOOLEAN NOT NULL,
     proparallel CHAR NOT NULL,
-    proowner INTEGER NOT NULL
+    proowner INTEGER NOT NULL,
+    proacl aclitem[]
 );
 
 CREATE TABLE pg_type (
+    oid SERIAL PRIMARY KEY,
     typname TEXT NOT NULL,
     typtype CHAR NOT NULL,
-    typnamespace INTEGER NOT NULL
+    typnamespace INTEGER NOT NULL,
+    typowner INTEGER NOT NULL,
+    typrelid INTEGER,
+    typbasetype INTEGER NOT NULL,
+    typtypmod INTEGER NOT NULL,
+    typnotnull BOOLEAN NOT NULL,
+    typdefault TEXT
+);
+
+CREATE TABLE pg_enum (
+    enumtypid INTEGER NOT NULL,
+    enumlabel TEXT NOT NULL,
+    enumsortorder REAL NOT NULL
+);
+
+CREATE TABLE pg_range (
+    rngtypid INTEGER NOT NULL,
+    rngsubtype INTEGER NOT NULL
 );
 
 CREATE TABLE pg_class (
@@ -131,6 +178,7 @@ CREATE TABLE pg_constraint (
     contype CHAR NOT NULL,
     conrelid INTEGER NOT NULL,
     confrelid INTEGER NOT NULL,
+    contypid INTEGER NOT NULL,
     conkey INTEGER[],
     condeferrable BOOLEAN NOT NULL,
     condeferred BOOLEAN NOT NULL
@@ -215,13 +263,19 @@ CREATE TABLE pg_am (
 CREATE TABLE pg_policies (
     policyname TEXT NOT NULL,
     schemaname TEXT NOT NULL,
-    tablename TEXT NOT NULL
+    tablename TEXT NOT NULL,
+    permissive TEXT NOT NULL,
+    roles TEXT[] NOT NULL,
+    cmd TEXT NOT NULL,
+    qual TEXT,
+    with_check TEXT
 );
 
 CREATE TABLE pg_rules (
     rulename TEXT NOT NULL,
     schemaname TEXT NOT NULL,
-    tablename TEXT NOT NULL
+    tablename TEXT NOT NULL,
+    definition TEXT NOT NULL
 );
 
 -- Maps PostgreSQL internal encoding numbers to character set names, used to

@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"htmx-golang-excercise/internal/db"
@@ -119,6 +120,30 @@ func (s *Server) Routes() http.Handler {
 						r.Get("/properties", s.handlePublicationProperties)
 					})
 
+					r.Route("/casts/{source}/{target}", func(r chi.Router) {
+						r.Get("/properties", s.handleCastProperties)
+					})
+
+					r.Route("/catalogs/{catalogName}", func(r chi.Router) {
+						r.Get("/properties", s.handleCatalogProperties)
+					})
+
+					r.Route("/event-triggers/{evtName}", func(r chi.Router) {
+						r.Get("/properties", s.handleEventTriggerProperties)
+					})
+
+					r.Route("/foreign-data-wrappers/{fdwName}", func(r chi.Router) {
+						r.Get("/properties", s.handleForeignDataWrapperProperties)
+					})
+
+					r.Route("/languages/{lanName}", func(r chi.Router) {
+						r.Get("/properties", s.handleLanguageProperties)
+					})
+
+					r.Route("/subscriptions/{subName}", func(r chi.Router) {
+						r.Get("/properties", s.handleSubscriptionProperties)
+					})
+
 					r.Route("/schemas/{schemaName}", func(r chi.Router) {
 						r.Get("/children", s.handleSchemaChildren)
 						r.Get("/properties", s.handleSchemaProperties)
@@ -141,6 +166,14 @@ func (s *Server) Routes() http.Handler {
 							r.Get("/properties", s.handleProcedureProperties)
 						})
 
+						r.Route("/types/{typeName}", func(r chi.Router) {
+							r.Get("/properties", s.handleTypeProperties)
+						})
+
+						r.Route("/domains/{domainName}", func(r chi.Router) {
+							r.Get("/properties", s.handleDomainProperties)
+						})
+
 						r.Route("/tables/{tableName}", func(r chi.Router) {
 							r.Get("/children", s.handleTableChildren)
 							r.Get("/properties", s.handleTableProperties)
@@ -156,6 +189,22 @@ func (s *Server) Routes() http.Handler {
 
 							r.Route("/triggers/{triggerName}", func(r chi.Router) {
 								r.Get("/properties", s.handleTriggerProperties)
+							})
+
+							r.Route("/columns/{columnName}", func(r chi.Router) {
+								r.Get("/properties", s.handleColumnProperties)
+							})
+
+							r.Route("/constraints/{constraintName}", func(r chi.Router) {
+								r.Get("/properties", s.handleConstraintProperties)
+							})
+
+							r.Route("/rls-policies/{policyName}", func(r chi.Router) {
+								r.Get("/properties", s.handlePolicyProperties)
+							})
+
+							r.Route("/rules/{ruleName}", func(r chi.Router) {
+								r.Get("/properties", s.handleRuleProperties)
 							})
 						})
 
@@ -542,6 +591,46 @@ func (s *Server) handleDatabaseCategory(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Casts are identified by a (source, target) type pair rather than a
+	// name, so building their properties URL needs the detailed pg_cast
+	// query instead of the plain label list.
+	if slug == "casts" {
+		detailed, derr := pgdb.New(pool).ListCastsDetailed(r.Context())
+		if derr != nil {
+			log.Printf("Failed to load cast details: %v", derr)
+			renderTree(w, leaves(cat.Icon, names), cat.Empty)
+			return
+		}
+		base := fmt.Sprintf("/api/servers/%d/databases/%s/casts", id, dbName)
+		nodes := make([]treeNode, 0, len(detailed))
+		for _, c := range detailed {
+			nodes = append(nodes, treeNode{
+				Icon:  cat.Icon,
+				Label: fmt.Sprintf("(%s AS %s)", c.SourceType, c.TargetType),
+				Menu:  "cast",
+				PropsURL: base + "/" + url.PathEscape(c.SourceType) + "/" +
+					url.PathEscape(c.TargetType) + "/properties",
+			})
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
+	// Catalogs, event triggers, foreign data wrappers, languages and
+	// subscriptions are simple named leaves that expose a read-only
+	// properties panel from their context menu, same as extensions above.
+	if slug == "catalogs" || slug == "event-triggers" || slug == "foreign-data-wrappers" ||
+		slug == "languages" || slug == "subscriptions" {
+		kind := strings.TrimSuffix(slug, "s")
+		base := fmt.Sprintf("/api/servers/%d/databases/%s/%s", id, dbName, slug)
+		nodes := make([]treeNode, 0, len(names))
+		for _, name := range names {
+			nodes = append(nodes, menuLeafProps(cat.Icon, name, kind, base+"/"+url.PathEscape(name)+"/properties"))
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
 	renderTree(w, leaves(cat.Icon, names), cat.Empty)
 }
 
@@ -700,6 +789,19 @@ func (s *Server) handleSchemaCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Types and domains are leaves that expose a read-only properties panel
+	// from their context menu, same as materialized views/sequences/functions.
+	if slug == "types" || slug == "domains" {
+		kind := strings.TrimSuffix(slug, "s")
+		nodes := make([]treeNode, 0, len(names))
+		for _, name := range names {
+			base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/%s/%s", id, dbName, schemaName, slug, url.PathEscape(name))
+			nodes = append(nodes, menuLeafProps(cat.Icon, name, kind, base+"/properties"))
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
 	renderTree(w, leaves(cat.Icon, names), cat.Empty)
 }
 
@@ -812,6 +914,64 @@ func (s *Server) handleTableCategory(w http.ResponseWriter, r *http.Request) {
 		nodes := make([]treeNode, 0, len(names))
 		for _, name := range names {
 			base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/tables/%s/%s/%s", id, dbName, schemaName, tableName, slug, name)
+			nodes = append(nodes, menuLeafProps(cat.Icon, name, kind, base+"/properties"))
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
+	// Column and constraint leaves need their bare identifier (the category
+	// listing formats each entry as "name type" / "name (kind)" for display),
+	// so their properties URLs are built from the detailed queries instead of
+	// the plain label list.
+	if slug == "columns" || slug == "constraints" {
+		base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/tables/%s/%s", id, dbName, schemaName, tableName, slug)
+		var nodes []treeNode
+		if slug == "columns" {
+			cols, cerr := pgdb.New(pool).GetTableColumnsDetailed(r.Context(), pgdb.GetTableColumnsDetailedParams{
+				Column1: pgtype.Text{String: schemaName, Valid: true},
+				Column2: pgtype.Text{String: tableName, Valid: true},
+			})
+			if cerr != nil {
+				log.Printf("Failed to load columns: %v", cerr)
+				renderTree(w, leaves(cat.Icon, names), cat.Empty)
+				return
+			}
+			nodes = make([]treeNode, 0, len(cols))
+			for _, c := range cols {
+				name := getString(c.ColumnName)
+				nodes = append(nodes, menuLeafProps(cat.Icon, name+" "+getString(c.DataType), "column", base+"/"+url.PathEscape(name)+"/properties"))
+			}
+		} else {
+			cons, cerr := pgdb.New(pool).GetTableConstraints(r.Context(), pgdb.GetTableConstraintsParams{
+				Nspname: schemaName,
+				Relname: tableName,
+			})
+			if cerr != nil {
+				log.Printf("Failed to load constraints: %v", cerr)
+				renderTree(w, leaves(cat.Icon, names), cat.Empty)
+				return
+			}
+			nodes = make([]treeNode, 0, len(cons))
+			for _, c := range cons {
+				nodes = append(nodes, menuLeafProps(cat.Icon, c.Conname+" ("+constraintTypeLabel(c.ConstraintType)+")", "constraint", base+"/"+url.PathEscape(c.Conname)+"/properties"))
+			}
+		}
+		renderTree(w, nodes, cat.Empty)
+		return
+	}
+
+	// RLS policy and rule leaves already carry their bare name from the
+	// category listing and expose a read-only properties panel, same as
+	// indexes/triggers above.
+	if slug == "rls-policies" || slug == "rules" {
+		kind := "rls-policy"
+		if slug == "rules" {
+			kind = "rule"
+		}
+		nodes := make([]treeNode, 0, len(names))
+		for _, name := range names {
+			base := fmt.Sprintf("/api/servers/%d/databases/%s/schemas/%s/tables/%s/%s/%s", id, dbName, schemaName, tableName, slug, url.PathEscape(name))
 			nodes = append(nodes, menuLeafProps(cat.Icon, name, kind, base+"/properties"))
 		}
 		renderTree(w, nodes, cat.Empty)
