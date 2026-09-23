@@ -27,6 +27,17 @@
         .cm-tooltip.cm-tooltip-autocomplete li[aria-selected] { background-color: #2563eb; color: #fff; }
         .cm-tooltip.cm-tooltip-autocomplete li[aria-selected] .cm-completionDetail { color: #cbd5e1; }
         .cm-tooltip.cm-tooltip-autocomplete .cm-completionIcon { opacity: 0.85; }
+
+        /* Create Table dialog: one grid row per column keeps the name, type,
+           nullability, default and key selectors vertically aligned. The
+           Tailwind build is pre-compiled, so a custom class is used instead
+           of grid-cols-* utilities. */
+        .ddl-col-row {
+            display: grid;
+            grid-template-columns: 1.3fr 1.3fr 0.9fr 1.3fr 0.7fr 1.5rem;
+            gap: 0.25rem;
+            align-items: center;
+        }
     </style>
 
     <!-- Application scripts (split by purpose; see static/js/*.js) -->

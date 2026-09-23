@@ -74,6 +74,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/ddl/{kind}/preview", s.handleDDLPreview)
 		r.Post("/api/ddl/{kind}/create", s.handleDDLCreate)
 		r.Post("/api/ddl/{kind}/drop", s.handleDDLDrop)
+		r.Post("/api/ddl/{kind}/alter", s.handleDDLAlter)
 
 		r.Get("/api/sessions", s.handleSessions)
 		r.Post("/api/sessions/{pid}/cancel", s.handleSessionCancel)

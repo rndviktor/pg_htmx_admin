@@ -36,7 +36,7 @@ function initContextMenu() {
     // "Create Schema"). Only kinds wired into the DDL framework are offered.
     function createLabel(kind) {
         const labels = {
-            schema: "Schema", sequence: "Sequence", view: "View",
+            schema: "Schema", table: "Table", sequence: "Sequence", view: "View",
             matview: "Materialized View", function: "Function", procedure: "Procedure",
             extension: "Extension", publication: "Publication",
             index: "Index", trigger: "Trigger",
@@ -204,6 +204,22 @@ function initContextMenu() {
                 openDropDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
             });
             menu.appendChild(dropItem);
+        }
+
+        // Edit-in-place via ALTER: database, role and schema nodes open a
+        // pre-filled alter dialog (name, owner, privilege flags, ...).
+        const ALTER_ITEMS = {
+            database: "Alter Database", role: "Alter Role", schema: "Alter Schema",
+        };
+        if (ALTER_ITEMS.hasOwnProperty(currentMenuKind)) {
+            menu.appendChild(divider());
+
+            const alterItem = menuItem(ALTER_ITEMS[currentMenuKind], false);
+            alterItem.addEventListener("click", () => {
+                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
+                openAlterDDLDialog(currentMenuKind, nodeURL, name, ddlFolderID(el, false));
+            });
+            menu.appendChild(alterItem);
         }
 
         // "Properties": tables/views derive their /properties endpoint from

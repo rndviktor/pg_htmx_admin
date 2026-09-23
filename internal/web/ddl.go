@@ -17,12 +17,13 @@ import (
 	pgdb "htmx-golang-excercise/internal/sqlc/postgres/db"
 )
 
-// DDL dialogs generate CREATE/DROP statements server-side from posted form
-// values (the client never sends raw SQL). Kinds whose Scope is "server" run
-// against the server's maintenance database (database, role, tablespace);
-// "db" kinds run against the specific target database. A successful
-// create/drop responds with a ddl-refresh HX-Trigger carrying the tree
-// container id to re-fetch, so the tree shows the new live objects/counts.
+// DDL dialogs generate CREATE/DROP/ALTER statements server-side from posted
+// form values (the client never sends raw SQL). Kinds whose Scope is
+// "server" run against the server's maintenance database (database, role,
+// tablespace); "db" kinds run against the specific target database. A
+// successful create/drop/alter responds with a ddl-refresh HX-Trigger
+// carrying the tree container id to re-fetch, so the tree shows the new
+// live objects/counts.
 
 type ddlScope string
 
@@ -31,27 +32,38 @@ const (
 	ddlScopeDB     ddlScope = "db"
 )
 
-// ddlKind describes one object type's create/drop dialogs. BuildCreate and
-// BuildDrop receive the flattened form values, so each kind can pick the
+// ddlKind describes one object type's create/drop/alter dialogs. BuildCreate
+// and BuildDrop receive the flattened form values, so each kind can pick the
 // fields it needs (context fields db/schema/table travel alongside).
+// BuildCreateForm, when set, receives the raw parsed form instead — CREATE
+// TABLE uses it to read its repeated column rows (parallel col_* lists that
+// formValues would collapse). BuildAlter, when set, enables the "Alter..."
+// context action for the kind.
 type ddlKind struct {
-	Label       string
-	Scope       ddlScope
-	HasCascade  bool
-	HasForce    bool
-	BuildCreate func(v map[string]string) (string, error)
-	BuildDrop   func(v map[string]string) (string, error)
+	Label           string
+	Scope           ddlScope
+	HasCascade      bool
+	HasForce        bool
+	BuildCreateForm func(form url.Values) (string, error)
+	BuildCreate     func(v map[string]string) (string, error)
+	BuildDrop       func(v map[string]string) (string, error)
+	BuildAlter      func(v map[string]string) (string, error)
 }
 
 var ddlKinds = map[string]ddlKind{
 	"database": {Label: "Database", Scope: ddlScopeServer, HasForce: true,
-		BuildCreate: buildCreateDatabase, BuildDrop: buildDropDatabase},
+		BuildCreate: buildCreateDatabase, BuildDrop: buildDropDatabase,
+		BuildAlter: buildAlterDatabase},
 	"role": {Label: "Role", Scope: ddlScopeServer,
-		BuildCreate: buildCreateRole, BuildDrop: buildDropRole},
+		BuildCreate: buildCreateRole, BuildDrop: buildDropRole,
+		BuildAlter: buildAlterRole},
 	"tablespace": {Label: "Tablespace", Scope: ddlScopeServer,
 		BuildCreate: buildCreateTablespace, BuildDrop: buildDropTablespace},
 	"schema": {Label: "Schema", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateSchema, BuildDrop: buildDropSchema},
+		BuildCreate: buildCreateSchema, BuildDrop: buildDropSchema,
+		BuildAlter: buildAlterSchema},
+	"table": {Label: "Table", Scope: ddlScopeDB, HasCascade: true,
+		BuildCreateForm: buildCreateTable, BuildDrop: buildDropTable},
 	"sequence": {Label: "Sequence", Scope: ddlScopeDB, HasCascade: true,
 		BuildCreate: buildCreateSequence, BuildDrop: buildDropSequence},
 	"view": {Label: "View", Scope: ddlScopeDB, HasCascade: true,
@@ -118,6 +130,11 @@ func renderCreateDDL(kind string, form url.Values) (string, error) {
 	k, ok := ddlKinds[kind]
 	if !ok {
 		return "", errUnsupportedDDLKind(kind)
+	}
+	// Kinds with repeated form rows (CREATE TABLE's columns) read the raw
+	// url.Values before it is collapsed to one value per field.
+	if k.BuildCreateForm != nil {
+		return k.BuildCreateForm(form)
 	}
 	v := formValues(form)
 	if kind == "index" {
@@ -426,6 +443,107 @@ func buildDropTablespace(v map[string]string) (string, error) {
 		return "", errRequired("Tablespace name")
 	}
 	return "DROP TABLESPACE " + quoteIdent(name) + ";\n", nil
+}
+
+// singleLine collapses embedded newlines so a typed type or default
+// expression stays on one line of the generated statement. Inner spaces are
+// preserved (they may sit inside a string literal).
+func singleLine(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	return strings.ReplaceAll(s, "\n", " ")
+}
+
+// buildCreateTable generates CREATE TABLE from the raw form. Column rows are
+// posted as parallel col_name/col_type/col_nullable/col_default/col_key
+// lists — every row always submits all five fields, so the indexes stay
+// aligned regardless of which rows the user added or removed. Rows with no
+// name and no type are untouched and skipped. Key is "pk" (table-level
+// PRIMARY KEY, multi-column ok) or "uniq" (inline UNIQUE). The optional owner
+// is applied as a follow-up ALTER TABLE, which is the only portable form.
+func buildCreateTable(form url.Values) (string, error) {
+	v := formValues(form)
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Table name")
+	}
+	schema := strings.TrimSpace(v["schema"])
+	if schema == "" {
+		return "", formErr("Target schema is missing.")
+	}
+
+	names := form["col_name"]
+	types := form["col_type"]
+	nulls := form["col_nullable"]
+	defaults := form["col_default"]
+	keys := form["col_key"]
+	at := func(list []string, i int) string {
+		if i < len(list) {
+			return strings.TrimSpace(list[i])
+		}
+		return ""
+	}
+
+	var defs []string
+	var pkCols []string
+	for i := range names {
+		cn := at(names, i)
+		ct := at(types, i)
+		if cn == "" {
+			if ct == "" && at(defaults, i) == "" && at(keys, i) == "" {
+				continue // untouched row
+			}
+			return "", formErr("Every column needs a name.")
+		}
+		if ct == "" {
+			return "", formErr("Type is required for column " + cn + ".")
+		}
+		line := quoteIdent(cn) + " " + singleLine(ct)
+		if at(nulls, i) == "NO" {
+			line += " NOT NULL"
+		}
+		if d := at(defaults, i); d != "" {
+			line += " DEFAULT " + singleLine(d)
+		}
+		switch at(keys, i) {
+		case "pk":
+			pkCols = append(pkCols, quoteIdent(cn))
+		case "uniq":
+			line += " UNIQUE"
+		}
+		defs = append(defs, "    "+line)
+	}
+	if len(defs) == 0 {
+		return "", formErr("Add at least one column.")
+	}
+	if len(pkCols) > 0 {
+		defs = append(defs, "    PRIMARY KEY ("+strings.Join(pkCols, ", ")+")")
+	}
+	if c := strings.TrimSpace(v["check_expr"]); c != "" {
+		defs = append(defs, "    CHECK ("+singleLine(c)+")")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("CREATE TABLE ")
+	sb.WriteString(qualIdent(schema, name))
+	sb.WriteString("\n(\n")
+	sb.WriteString(strings.Join(defs, ",\n"))
+	sb.WriteString("\n);\n")
+	if owner := strings.TrimSpace(v["owner"]); owner != "" {
+		sb.WriteString("ALTER TABLE ")
+		sb.WriteString(qualIdent(schema, name))
+		sb.WriteString(" OWNER TO ")
+		sb.WriteString(quoteIdent(owner))
+		sb.WriteString(";\n")
+	}
+	return sb.String(), nil
+}
+
+func buildDropTable(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Table name")
+	}
+	return "DROP TABLE " + qualIdent(v["schema"], name) + dropCascade(v) + ";\n", nil
 }
 
 func buildCreateSchema(v map[string]string) (string, error) {
@@ -800,6 +918,116 @@ func buildDropTrigger(v map[string]string) (string, error) {
 	return "DROP TRIGGER " + quoteIdent(name) + " ON " + qualIdent(v["schema"], v["table"]) + dropCascade(v) + ";\n", nil
 }
 
+// joinStatements joins ALTER statements into one script. Attribute changes
+// must run before a RENAME (which invalidates the old name), so callers put
+// the rename last.
+func joinStatements(stmts []string) string {
+	return strings.Join(stmts, ";\n") + ";\n"
+}
+
+// buildAlterSchema emits OWNER / RENAME statements for a schema.
+func buildAlterSchema(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Schema name")
+	}
+	var stmts []string
+	if owner := strings.TrimSpace(v["owner"]); owner != "" {
+		stmts = append(stmts, "ALTER SCHEMA "+quoteIdent(name)+" OWNER TO "+quoteIdent(owner))
+	}
+	if nn := strings.TrimSpace(v["newname"]); nn != "" {
+		stmts = append(stmts, "ALTER SCHEMA "+quoteIdent(name)+" RENAME TO "+quoteIdent(nn))
+	}
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterDatabase emits OWNER / connectivity / CONNECTION LIMIT / RENAME
+// statements for a database. Blank fields mean "leave unchanged".
+func buildAlterDatabase(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Database name")
+	}
+	var stmts []string
+	if owner := strings.TrimSpace(v["owner"]); owner != "" {
+		stmts = append(stmts, "ALTER DATABASE "+quoteIdent(name)+" OWNER TO "+quoteIdent(owner))
+	}
+	if cl := strings.TrimSpace(v["connlimit"]); cl != "" {
+		n, err := strconv.Atoi(cl)
+		if err != nil || n < -1 {
+			return "", formErr("Connection limit must be -1 (unlimited) or higher.")
+		}
+		stmts = append(stmts, "ALTER DATABASE "+quoteIdent(name)+" CONNECTION LIMIT "+strconv.Itoa(n))
+	}
+	switch v["allowconn"] {
+	case "on":
+		stmts = append(stmts, "ALTER DATABASE "+quoteIdent(name)+" ALLOW CONNECTIONS")
+	case "off":
+		stmts = append(stmts, "ALTER DATABASE "+quoteIdent(name)+" DISALLOW CONNECTIONS")
+	}
+	if nn := strings.TrimSpace(v["newname"]); nn != "" {
+		stmts = append(stmts, "ALTER DATABASE "+quoteIdent(name)+" RENAME TO "+quoteIdent(nn))
+	}
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an owner, connection limit, connectivity or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
+// buildAlterRole emits attribute / PASSWORD / RENAME statements for a role.
+// Boolean attributes are tri-state form selects: "" leaves them unchanged,
+// "on"/"off" emit the positive/negative option. The role options use the
+// documented space-separated `ALTER ROLE name [ WITH ] option ...` form.
+func buildAlterRole(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Role name")
+	}
+	var acts []string
+	tri := func(field, yes, no string) {
+		switch v[field] {
+		case "on":
+			acts = append(acts, yes)
+		case "off":
+			acts = append(acts, no)
+		}
+	}
+	tri("login", "LOGIN", "NOLOGIN")
+	if pwd := v["password"]; pwd != "" {
+		acts = append(acts, "PASSWORD "+quoteLiteral(pwd))
+	}
+	tri("superuser", "SUPERUSER", "NOSUPERUSER")
+	tri("createdb", "CREATEDB", "NOCREATEDB")
+	tri("createrole", "CREATEROLE", "NOCREATEROLE")
+	tri("inherit", "INHERIT", "NOINHERIT")
+	tri("replication", "REPLICATION", "NOREPLICATION")
+	if cl := strings.TrimSpace(v["connlimit"]); cl != "" {
+		n, err := strconv.Atoi(cl)
+		if err != nil || n < -1 {
+			return "", formErr("Connection limit must be -1 (unlimited) or higher.")
+		}
+		acts = append(acts, "CONNECTION LIMIT "+strconv.Itoa(n))
+	}
+	if vu := strings.TrimSpace(v["validuntil"]); vu != "" {
+		acts = append(acts, "VALID UNTIL "+quoteLiteral(vu))
+	}
+
+	var stmts []string
+	if len(acts) > 0 {
+		stmts = append(stmts, "ALTER ROLE "+quoteIdent(name)+" WITH "+strings.Join(acts, " "))
+	}
+	if nn := strings.TrimSpace(v["newname"]); nn != "" {
+		stmts = append(stmts, "ALTER ROLE "+quoteIdent(name)+" RENAME TO "+quoteIdent(nn))
+	}
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested. Set an attribute or a new name.")
+	}
+	return joinStatements(stmts), nil
+}
+
 // dropCascade is the DROP ... CASCADE suffix when the drop form requested it.
 func dropCascade(v map[string]string) string {
 	if v["cascade"] == "on" {
@@ -1016,6 +1244,11 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
 		return
 	}
+	if r.URL.Query().Get("action") == "alter" && ddlKinds[kind].BuildAlter == nil {
+		log.Printf("DDL modal: alter not supported for kind %q on %s", kind, r.URL.Path)
+		http.Error(w, "Altering this object kind is not supported", http.StatusNotFound)
+		return
+	}
 
 	sid, _ := strconv.ParseInt(r.URL.Query().Get("server_id"), 10, 64)
 	folderID := r.URL.Query().Get("folder_id")
@@ -1054,6 +1287,32 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 		dd, currentUser = s.ddlDropdowns(ctx, kind, pool, schema, table)
 	}
 
+	// The alter dialog reuses the pool acquired above so it can open with the
+	// object's current values (owner, flags, ...) pre-filled.
+	if r.URL.Query().Get("action") == "alter" {
+		name := r.URL.Query().Get("name")
+		values := map[string]string{"name": name}
+		if perr == nil {
+			for fk, fv := range s.alterPrefill(ctx, pool, kind, name) {
+				values[fk] = fv
+			}
+		}
+		s.renderDDLModal(w, ddlModalData{
+			Partial:   "ddl_alter_modal.html",
+			Kind:      kind,
+			ServerID:  sid,
+			FolderID:  folderID,
+			DB:        db,
+			Schema:    schema,
+			Table:     table,
+			Name:      name,
+			Values:    values,
+			Dropdowns: dd,
+			Error:     errMsg,
+		})
+		return
+	}
+
 	// Defaults shown in the fresh create form: roles log in and inherit by
 	// default with an unlimited connection count, and the connecting user is
 	// the owner where an owner is offered.
@@ -1065,7 +1324,7 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 	}
 	if currentUser != "" {
 		switch kind {
-		case "database", "tablespace", "schema", "sequence", "view", "matview", "function", "procedure", "publication":
+		case "database", "tablespace", "schema", "sequence", "view", "matview", "function", "procedure", "publication", "table":
 			values["owner"] = currentUser
 		}
 	}
@@ -1114,7 +1373,18 @@ func (s *Server) handleDDLPreview(w http.ResponseWriter, r *http.Request) {
 
 	sqlStr, err := renderCreateDDL(kind, r.Form)
 	contents := sqlStr
-	if err != nil {
+	if r.FormValue("mode") == "alter" {
+		// The alter dialog shares the preview endpoint; mode=alter routes the
+		// form values through BuildAlter instead of the create builder.
+		k := ddlKinds[kind]
+		if k.BuildAlter == nil {
+			contents = "Error: altering this object kind is not supported."
+		} else if sqlStr, err = k.BuildAlter(formValues(r.Form)); err != nil {
+			contents = "Error: " + err.Error()
+		} else {
+			contents = sqlStr
+		}
+	} else if err != nil {
 		contents = "Error: " + err.Error()
 	}
 	RenderPartial(w, "ddl_preview.html", map[string]any{"Contents": contents})
@@ -1320,4 +1590,171 @@ func (s *Server) runOnTarget(ctx context.Context, kind string, sid int64, db str
 		return s.runDatabaseDDL(ctx, sid, db, stmts)
 	}
 	return s.runDDL(ctx, sid, stmts)
+}
+
+// alterPrefill loads an object's current server-side attributes so the alter
+// form opens showing its existing values. Best-effort: failures are logged
+// and only the fields that could be loaded are returned.
+func (s *Server) alterPrefill(ctx context.Context, pool *pgxpool.Pool, kind, name string) map[string]string {
+	if pool == nil || name == "" {
+		return nil
+	}
+	v := map[string]string{}
+	switch kind {
+	case "schema":
+		gen, err := pgdb.New(pool).GetSchemaGeneral(ctx, name)
+		if err != nil {
+			log.Printf("alter prefill schema %q: %v", name, err)
+			return v
+		}
+		v["owner"] = gen.Owner
+	case "database":
+		var owner string
+		var connlimit int
+		var allowconn bool
+		err := pool.QueryRow(ctx,
+			`SELECT pg_get_userbyid(datdba), datconnlimit, datallowconn
+FROM pg_database WHERE datname = $1`, name).
+			Scan(&owner, &connlimit, &allowconn)
+		if err != nil {
+			log.Printf("alter prefill database %q: %v", name, err)
+			return v
+		}
+		v["owner"] = owner
+		v["connlimit"] = strconv.Itoa(connlimit)
+		if allowconn {
+			v["allowconn"] = "on"
+		} else {
+			v["allowconn"] = "off"
+		}
+	case "role":
+		var super, createdb, createrole, canlogin, inherit, repl bool
+		var connlimit int
+		var validuntil string
+		err := pool.QueryRow(ctx,
+			`SELECT rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolinherit,
+    rolreplication, rolconnlimit,
+    COALESCE(to_char(NULLIF(rolvaliduntil, 'infinity'::timestamptz), 'YYYY-MM-DD"T"HH24:MI'), '')
+FROM pg_roles WHERE rolname = $1`, name).
+			Scan(&super, &createdb, &createrole, &canlogin, &inherit, &repl, &connlimit, &validuntil)
+		if err != nil {
+			log.Printf("alter prefill role %q: %v", name, err)
+			return v
+		}
+		tri := func(b bool) string {
+			if b {
+				return "on"
+			}
+			return "off"
+		}
+		v["login"] = tri(canlogin)
+		v["superuser"] = tri(super)
+		v["createdb"] = tri(createdb)
+		v["createrole"] = tri(createrole)
+		v["inherit"] = tri(inherit)
+		v["replication"] = tri(repl)
+		v["connlimit"] = strconv.Itoa(connlimit)
+		v["validuntil"] = validuntil
+	}
+	return v
+}
+
+// handleDDLAlter builds and runs the ALTER script for kinds that support
+// edit-in-place (database, role, schema). Structure mirrors handleDDLCreate:
+// errors re-render the form with the submitted values and live dropdowns.
+func (s *Server) handleDDLAlter(w http.ResponseWriter, r *http.Request) {
+	kind := chi.URLParam(r, "kind")
+	k, ok := ddlKinds[kind]
+	if !ok || k.BuildAlter == nil {
+		log.Printf("DDL alter: unsupported kind %q on %s", kind, r.URL.Path)
+		http.Error(w, "Altering this object kind is not supported", http.StatusNotFound)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		log.Printf("DDL alter: invalid form data: %v", err)
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	sid, err := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
+	if err != nil || sid < 1 {
+		log.Printf("DDL alter %s: missing or invalid server_id %q", kind, r.FormValue("server_id"))
+		s.renderDDLModal(w, ddlModalData{
+			Partial: "ddl_alter_modal.html",
+			Kind:    kind,
+			Name:    strings.TrimSpace(r.FormValue("name")),
+			Values:  formValues(r.Form),
+			Error:   "Missing or invalid server id.",
+		})
+		return
+	}
+	folderID := r.FormValue("folder_id")
+	db := r.FormValue("db")
+	schema := r.FormValue("schema")
+	table := r.FormValue("table")
+	name := strings.TrimSpace(r.FormValue("name"))
+	if s.isDisconnected(sid) {
+		log.Printf("DDL alter %s: server %d is disconnected", kind, sid)
+		s.renderDDLModal(w, ddlModalData{
+			Partial:  "ddl_alter_modal.html",
+			Kind:     kind,
+			ServerID: sid,
+			FolderID: folderID,
+			DB:       db,
+			Schema:   schema,
+			Table:    table,
+			Name:     name,
+			Values:   formValues(r.Form),
+			Error:    "Server is disconnected. Reconnect it first.",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	pool, perr := s.ddlTargetPool(ctx, kind, sid, db)
+	var dd map[string][]string
+	if perr != nil {
+		log.Printf("DDL alter %s pool: %v", kind, perr)
+		dd = map[string][]string{}
+	} else {
+		dd, _ = s.ddlDropdowns(ctx, kind, pool, schema, table)
+	}
+
+	rerender := func(errMsg string) {
+		s.renderDDLModal(w, ddlModalData{
+			Partial:   "ddl_alter_modal.html",
+			Kind:      kind,
+			ServerID:  sid,
+			FolderID:  folderID,
+			DB:        db,
+			Schema:    schema,
+			Table:     table,
+			Name:      name,
+			Values:    formValues(r.Form),
+			Dropdowns: dd,
+			Error:     errMsg,
+		})
+	}
+
+	if perr != nil {
+		rerender("Cannot reach the target database: " + perr.Error())
+		return
+	}
+	sqlStr, err := k.BuildAlter(formValues(r.Form))
+	if err != nil {
+		log.Printf("DDL alter %s: build error: %v", kind, err)
+		rerender(err.Error())
+		return
+	}
+	tag, err := s.runOnTarget(ctx, kind, sid, db, splitStatements(sqlStr))
+	if err != nil {
+		log.Printf("DDL alter %s failed: %v", kind, err)
+		rerender("Execution failed: " + err.Error())
+		return
+	}
+
+	s.refreshDDLTree(w, folderID)
+	RenderPartial(w, "ddl_success.html", map[string]any{"Message": tag})
 }

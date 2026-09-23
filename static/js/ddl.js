@@ -77,6 +77,33 @@
         openModal("/api/ddl/" + kind + "/modal?" + qs.toString());
     };
 
+    window.openAlterDDLDialog = function (kind, nodeURL, name, folderID) {
+        const qs = modalQuery("alter", kind, nodeURL, folderID, name || "");
+        if (!qs.get("server_id")) return;
+        openModal("/api/ddl/" + kind + "/modal?" + qs.toString());
+    };
+
+    // Creates a fresh blank column row from the hidden template. The row is a
+    // full width (6-field) copy so at least one empty column placeholder never
+    // forces input fields onto separate lines.
+    window.ddlAddColumnRow = function () {
+        const tpl = document.getElementById("ddl-col-row-template");
+        const wrap = document.getElementById("ddl-columns");
+        if (!tpl || !wrap) return;
+        wrap.appendChild(tpl.content.cloneNode(true));
+    };
+
+    // Removes a column row; the first (heading) row is kept so the columns
+    // block never ends up empty.
+    window.ddlRemoveColumnRow = function (btn) {
+        const wrap = document.getElementById("ddl-columns");
+        const row = btn && btn.closest("[data-col-row]");
+        if (!wrap || !row) return;
+        const rows = wrap.querySelectorAll("[data-col-row]");
+        if (rows.length <= 1) return;
+        row.remove();
+    };
+
     // After a successful create/drop the backend responds with an
     // HX-Trigger: {"ddl-refresh": "<tree container id>"}. Re-fetch that tree
     // container's node (folders stay expanded, refreshed in place), then close

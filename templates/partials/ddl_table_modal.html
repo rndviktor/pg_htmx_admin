@@ -1,0 +1,153 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">Create - Table</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+
+        <form hx-post="/api/ddl/table/create" hx-target="#modal-container" hx-swap="innerHTML"
+              hx-disabled-elt="button[type='submit']" class="space-y-4">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="folder_id" value="{{ .FolderID }}">
+            <input type="hidden" name="db" value="{{ .DB }}">
+            <input type="hidden" name="schema" value="{{ .Schema }}">
+            <input type="hidden" name="table" value="{{ .Table }}">
+
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Name</label>
+                    <input type="text" name="name" required placeholder="orders" value="{{ index .Values "name" }}"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                           autocomplete="off" spellcheck="false">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Owner</label>
+                    <select name="owner" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value=""></option>
+                        {{ range (index .Dropdowns "roles") }}<option value="{{ . }}" {{ if eq . (index $.Values "owner") }}selected{{ end }}>{{ . }}</option>{{ end }}
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Columns</label>
+                <p class="text-xs text-gray-500 mb-1">Key: PK = table primary key (pick on several rows for a composite key), UQ = inline UNIQUE. Default is a raw SQL expression (quote string literals yourself).</p>
+                <div id="ddl-columns" class="space-y-1">
+                    <div data-col-row class="ddl-col-row">
+                        <input type="text" name="col_name" placeholder="id" value="{{ index .Values "col_name" }}" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Column name">
+                        <input type="text" name="col_type" list="ddl-col-types" placeholder="bigint" value="{{ index .Values "col_type" }}" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Data type">
+                        <select name="col_nullable" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Nullable">
+                            <option value="YES" {{ if eq (index .Values "col_nullable") "NO" }}{{ else }}selected{{ end }}>NULL</option>
+                            <option value="NO" {{ if eq (index .Values "col_nullable") "NO" }}selected{{ end }}>NOT NULL</option>
+                        </select>
+                        <input type="text" name="col_default" placeholder="default" value="{{ index .Values "col_default" }}" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+                        <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
+                            <option value="" {{ if not (eq (index .Values "col_key") "pk") }}{{ if not (eq (index .Values "col_key") "uniq") }}selected{{ end }}{{ end }}>-</option>
+                            <option value="pk" {{ if eq (index .Values "col_key") "pk" }}selected{{ end }}>PK</option>
+                            <option value="uniq" {{ if eq (index .Values "col_key") "uniq" }}selected{{ end }}>UQ</option>
+                        </select>
+                        <button type="button" onclick="ddlRemoveColumnRow(this)"
+                                class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
+                    </div>
+                    <div data-col-row class="ddl-col-row">
+                        <input type="text" name="col_name" placeholder="created_at" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Column name">
+                        <input type="text" name="col_type" list="ddl-col-types" placeholder="timestamptz" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Data type">
+                        <select name="col_nullable" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Nullable">
+                            <option value="YES" selected>NULL</option>
+                            <option value="NO">NOT NULL</option>
+                        </select>
+                        <input type="text" name="col_default" placeholder="now()" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+                        <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
+                            <option value="" selected>-</option>
+                            <option value="pk">PK</option>
+                            <option value="uniq">UQ</option>
+                        </select>
+                        <button type="button" onclick="ddlRemoveColumnRow(this)"
+                                class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
+                    </div>
+                </div>
+                <button type="button" onclick="ddlAddColumnRow()"
+                        class="mt-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-xs border border-gray-600">+ Add column</button>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Check constraint (optional)</label>
+                <input type="text" name="check_expr" placeholder="price > 0" value="{{ index .Values "check_expr" }}"
+                       autocomplete="off" spellcheck="false"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">SQL Preview</label>
+                <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[5rem] max-h-40 overflow-auto">
+                    <pre class="text-xs font-mono text-gray-300">CREATE TABLE ...</pre>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button type="button" onclick="closeDDL()"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
+                <button type="button" hx-post="/api/ddl/table/preview" hx-include="closest form"
+                        hx-target="#ddl-preview" hx-swap="innerHTML"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Update SQL</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">Create Table</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<template id="ddl-col-row-template">
+    <div data-col-row class="ddl-col-row">
+        <input type="text" name="col_name" placeholder="column" autocomplete="off" spellcheck="false"
+               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Column name">
+        <input type="text" name="col_type" list="ddl-col-types" placeholder="text" autocomplete="off" spellcheck="false"
+               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Data type">
+        <select name="col_nullable" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Nullable">
+            <option value="YES" selected>NULL</option>
+            <option value="NO">NOT NULL</option>
+        </select>
+        <input type="text" name="col_default" placeholder="default" autocomplete="off" spellcheck="false"
+               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+        <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
+            <option value="" selected>-</option>
+            <option value="pk">PK</option>
+            <option value="uniq">UQ</option>
+        </select>
+        <button type="button" onclick="ddlRemoveColumnRow(this)"
+                class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
+    </div>
+</template>
+
+<datalist id="ddl-col-types">
+    <option value="bigint"></option>
+    <option value="bigserial"></option>
+    <option value="boolean"></option>
+    <option value="bytea"></option>
+    <option value="character varying(255)"></option>
+    <option value="date"></option>
+    <option value="double precision"></option>
+    <option value="integer"></option>
+    <option value="interval"></option>
+    <option value="jsonb"></option>
+    <option value="json"></option>
+    <option value="numeric(12, 2)"></option>
+    <option value="real"></option>
+    <option value="serial"></option>
+    <option value="smallint"></option>
+    <option value="smallserial"></option>
+    <option value="text"></option>
+    <option value="time"></option>
+    <option value="timetz"></option>
+    <option value="timestamp"></option>
+    <option value="timestamptz"></option>
+    <option value="uuid"></option>
+</datalist>
