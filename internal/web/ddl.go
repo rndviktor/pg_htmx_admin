@@ -113,6 +113,9 @@ var ddlKinds = map[string]ddlKind{
 	"rule": {Label: "Rule", Scope: ddlScopeDB, HasCascade: true,
 		BuildCreate: buildCreateRule, BuildDrop: buildDropRule,
 		BuildAlter: buildAlterRule},
+	"policy": {Label: "RLS Policy", Scope: ddlScopeDB,
+		BuildCreateForm: buildCreatePolicy, BuildDrop: buildDropPolicy,
+		BuildAlterForm: buildAlterPolicyForm},
 }
 
 // ddlModalData is the view model shared by the create and drop modal partials.
@@ -1182,6 +1185,108 @@ func buildAlterRule(v map[string]string) (string, error) {
 		return "", formErr("No changes requested. Set a new name.")
 	}
 	return "ALTER RULE " + quoteIdent(name) + " ON " + qualIdent(v["schema"], v["table"]) + " RENAME TO " + quoteIdent(nn) + ";\n", nil
+}
+
+// rolesClause quotes each non-blank role and joins them for a policy's TO
+// clause. Returns "" when roles is empty — Postgres then defaults the policy
+// to the "public" pseudo-role, which never appears in the real-roles
+// dropdown these values come from, so "nothing selected" cleanly represents
+// it on both the create and alter side.
+func rolesClause(roles []string) string {
+	var quoted []string
+	for _, r := range roles {
+		if r = strings.TrimSpace(r); r != "" {
+			quoted = append(quoted, quoteIdent(r))
+		}
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// buildCreatePolicy generates CREATE POLICY ... ON <table> [AS RESTRICTIVE]
+// [FOR <cmd>] [TO <roles>] [USING (...)] [WITH CHECK (...)] — the same
+// clause shape buildCreatePolicyScript (properties.go) already reconstructs
+// for display, just without its leading "-- Policy:" comment.
+func buildCreatePolicy(form url.Values) (string, error) {
+	v := formValues(form)
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Policy name")
+	}
+	if v["schema"] == "" || v["table"] == "" {
+		return "", formErr("Target table is missing.")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("CREATE POLICY " + quoteIdent(name) + " ON " + qualIdent(v["schema"], v["table"]))
+	if strings.EqualFold(strings.TrimSpace(v["permissive"]), "RESTRICTIVE") {
+		sb.WriteString("\n    AS RESTRICTIVE")
+	}
+	if cmd := strings.ToUpper(strings.TrimSpace(v["policy_for"])); cmd != "" && cmd != "ALL" {
+		sb.WriteString("\n    FOR " + cmd)
+	}
+	if roles := rolesClause(form["roles"]); roles != "" {
+		sb.WriteString("\n    TO " + roles)
+	}
+	if using := strings.TrimSpace(v["using_expr"]); using != "" {
+		sb.WriteString("\n    USING (" + singleLine(using) + ")")
+	}
+	if check := strings.TrimSpace(v["with_check_expr"]); check != "" {
+		sb.WriteString("\n    WITH CHECK (" + singleLine(check) + ")")
+	}
+	sb.WriteString(";\n")
+	return sb.String(), nil
+}
+
+func buildDropPolicy(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Policy name")
+	}
+	if v["schema"] == "" || v["table"] == "" {
+		return "", formErr("Target table is missing.")
+	}
+	// No dropCascade call: unlike every other droppable kind, DROP POLICY
+	// has no CASCADE/RESTRICT clause in Postgres.
+	return "DROP POLICY " + quoteIdent(name) + " ON " + qualIdent(v["schema"], v["table"]) + ";\n", nil
+}
+
+// buildAlterPolicyForm emits up to two statements: an attribute-change
+// ALTER POLICY (TO/USING/WITH CHECK — any omitted clause means "leave
+// unchanged", same convention as the sequence/database alter forms' blank
+// numeric fields) and, separately, a RENAME — Postgres doesn't allow
+// combining RENAME with the other clauses in one statement.
+func buildAlterPolicyForm(form url.Values) (string, error) {
+	v := formValues(form)
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Policy name")
+	}
+	if v["schema"] == "" || v["table"] == "" {
+		return "", formErr("Target table is missing.")
+	}
+	table := qualIdent(v["schema"], v["table"])
+
+	var attrs []string
+	if roles := rolesClause(form["roles"]); roles != "" {
+		attrs = append(attrs, "TO "+roles)
+	}
+	if using := strings.TrimSpace(v["using_expr"]); using != "" {
+		attrs = append(attrs, "USING ("+singleLine(using)+")")
+	}
+	if check := strings.TrimSpace(v["with_check_expr"]); check != "" {
+		attrs = append(attrs, "WITH CHECK ("+singleLine(check)+")")
+	}
+	var stmts []string
+	if len(attrs) > 0 {
+		stmts = append(stmts, "ALTER POLICY "+quoteIdent(name)+" ON "+table+" "+strings.Join(attrs, " "))
+	}
+	if nn := strings.TrimSpace(v["newname"]); nn != "" {
+		stmts = append(stmts, "ALTER POLICY "+quoteIdent(name)+" ON "+table+" RENAME TO "+quoteIdent(nn))
+	}
+	if len(stmts) == 0 {
+		return "", formErr("No changes requested.")
+	}
+	return joinStatements(stmts), nil
 }
 
 // joinStatements joins ALTER statements into one script. Attribute changes
@@ -2397,6 +2502,21 @@ JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = $1`, name).
 		} else {
 			v["enabled"] = "on"
 		}
+	case "policy":
+		if schema == "" || table == "" {
+			return v
+		}
+		pol, err := pgdb.New(pool).GetPolicyGeneral(ctx, pgdb.GetPolicyGeneralParams{
+			Schemaname: schema, Tablename: table, Policyname: name,
+		})
+		if err != nil {
+			log.Printf("alter prefill policy %q: %v", name, err)
+			return v
+		}
+		// permissive/cmd aren't alterable, so they're not prefilled here.
+		v["roles"] = pol.Roles
+		v["using_expr"] = pol.UsingExpr
+		v["with_check_expr"] = pol.WithCheckExpr
 	case "schema":
 		gen, err := pgdb.New(pool).GetSchemaGeneral(ctx, name)
 		if err != nil {

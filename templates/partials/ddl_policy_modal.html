@@ -1,0 +1,86 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl modal-panel w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">Create - RLS Policy</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+
+        <form hx-post="/api/ddl/policy/create" hx-target="#modal-container" hx-swap="innerHTML"
+              hx-disabled-elt="button[type='submit']" class="space-y-4">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="folder_id" value="{{ .FolderID }}">
+            <input type="hidden" name="db" value="{{ .DB }}">
+            <input type="hidden" name="schema" value="{{ .Schema }}">
+            <input type="hidden" name="table" value="{{ .Table }}">
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Name</label>
+                <input type="text" name="name" required placeholder="tenant_isolation" value="{{ index .Values "name" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                       autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Permissive</label>
+                    <select name="permissive" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="PERMISSIVE" {{ if ne (index .Values "permissive") "RESTRICTIVE" }}selected{{ end }}>PERMISSIVE</option>
+                        <option value="RESTRICTIVE" {{ if eq (index .Values "permissive") "RESTRICTIVE" }}selected{{ end }}>RESTRICTIVE</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">For</label>
+                    <select name="policy_for" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="ALL" {{ if not (index .Values "policy_for") }}selected{{ end }}>ALL</option>
+                        <option value="SELECT" {{ if eq (index .Values "policy_for") "SELECT" }}selected{{ end }}>SELECT</option>
+                        <option value="INSERT" {{ if eq (index .Values "policy_for") "INSERT" }}selected{{ end }}>INSERT</option>
+                        <option value="UPDATE" {{ if eq (index .Values "policy_for") "UPDATE" }}selected{{ end }}>UPDATE</option>
+                        <option value="DELETE" {{ if eq (index .Values "policy_for") "DELETE" }}selected{{ end }}>DELETE</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Roles</label>
+                <p class="text-xs text-gray-500 mb-1">Leave nothing selected to apply the policy to all roles (PUBLIC).</p>
+                <select multiple name="roles" size="4" title="Roles"
+                        class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    {{ range (index .Dropdowns "roles") }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Using expression (optional)</label>
+                <input type="text" name="using_expr" placeholder="tenant_id = current_setting('app.tenant_id')::int" value="{{ index .Values "using_expr" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+                       autocomplete="off" spellcheck="false">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">With check expression (optional)</label>
+                <input type="text" name="with_check_expr" placeholder="tenant_id = current_setting('app.tenant_id')::int" value="{{ index .Values "with_check_expr" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+                       autocomplete="off" spellcheck="false">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">SQL Preview</label>
+                <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[5rem] max-h-40 overflow-auto">
+                    <pre class="text-xs font-mono text-gray-300">CREATE POLICY ...</pre>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button type="button" onclick="closeDDL()"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
+                <button type="button" hx-post="/api/ddl/policy/preview" hx-include="closest form"
+                        hx-target="#ddl-preview" hx-swap="innerHTML"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Update SQL</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">Create Policy</button>
+            </div>
+        </form>
+    </div>
+</div>

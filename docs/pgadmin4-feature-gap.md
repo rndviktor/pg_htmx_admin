@@ -52,19 +52,22 @@ that is missing, ordered by priority.
   ranges — clicking one still opens a correct (if misleadingly-labeled)
   Composite panel showing that table's columns.
 - **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
-  for 14 object kinds — database, role, tablespace, schema, sequence, view,
+  for 15 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index,
-  trigger and rule — plus a Create Table dialog with columns (name, type,
-  nullability, default, primary key / unique keys) and a CHECK constraint.
-  Pre-filled `ALTER` dialogs now cover all 14 kinds: rename/owner for
-  database, role, tablespace and publication; rename/owner/set-schema for
+  trigger, rule and RLS policy — plus a Create Table dialog with columns
+  (name, type, nullability, default, primary key / unique keys) and a CHECK
+  constraint. Pre-filled `ALTER` dialogs now cover all 15 kinds: rename/owner
+  for database, role, tablespace and publication; rename/owner/set-schema for
   table, view, materialized view, function, procedure and sequence (plus
   increment/min/max/cache/restart/cycle for sequences); update-version/
   set-schema for extensions (no owner/rename — Postgres has no such `ALTER
   EXTENSION` form); rename for indexes and rules (Postgres has no other
   `ALTER RULE` form — the event/action/WHERE clause can't be changed in
-  place, only dropped and recreated); and enable/disable + rename for
-  triggers. **Table's
+  place, only dropped and recreated); enable/disable + rename for triggers;
+  and roles/using/with-check plus rename for RLS policies (two independent
+  statements — Postgres doesn't allow combining a rename with the other
+  attribute changes in one `ALTER POLICY`; `permissive`/`FOR <cmd>` aren't
+  alterable at all, matching Postgres). **Table's
   ALTER also covers column-level DDL**: add, drop, retype, rename and toggle
   nullability/default on existing columns, plus add new columns, from the
   same dialog (`buildAlterTableForm`, `internal/web/ddl.go`). **Foreign key
@@ -96,10 +99,17 @@ that is missing, ordered by priority.
   every other kind — the action clause is raw SQL the admin types themselves
   (`NOTHING` or one or more commands), same trust model as the CHECK
   constraint and exclusion-element fields (`buildCreateRule`,
-  `internal/web/ddl.go`). The client never sends raw SQL; a successful
-  create/drop/alter refreshes the tree in place (`internal/web/ddl.go`).
-  Drop is now wired for every one of the 14
-  kinds including tables (previously missing only from the context menu, the
+  `internal/web/ddl.go`). **RLS policy DDL** (`CREATE POLICY` / `ALTER
+  POLICY` / `DROP POLICY`) is done too — permissive/restrictive, `FOR
+  <cmd>`, a Roles picker (`<select multiple>` sourced from the same roles
+  list every dialog already fetches — leaving it empty applies the policy to
+  `PUBLIC`), and optional `USING`/`WITH CHECK` expressions
+  (`buildCreatePolicy`, `internal/web/ddl.go`); `DROP POLICY` has no
+  `CASCADE` clause in Postgres, unlike every other droppable kind. The
+  client never sends raw SQL; a successful create/drop/alter refreshes the
+  tree in place (`internal/web/ddl.go`). Drop is now wired for every one of
+  the 15 kinds including tables (previously missing only from the context
+  menu, the
   server-side builder already existed). **DROP Script**: any droppable kind
   can also generate its DROP SQL into a read-only script tab without running
   it (`GET /api/ddl/{kind}/drop-script`), blocked the same way the run-it
@@ -116,10 +126,9 @@ that is missing, ordered by priority.
 
 - **P1.1.** **Full table DDL and broader ALTER** — Create Table, ALTER TABLE
   (owner/schema/rename, column-level add/drop/alter/rename, foreign key,
-  exclusion and generated-column support) and Rules (create/rename/drop) are
-  all done; see "What this app already has" above. Still missing:
-  - **RLS policy DDL** (`CREATE POLICY` / `ALTER POLICY` / `DROP POLICY`) —
-    also currently read-only display only.
+  exclusion and generated-column support), Rules (create/rename/drop) and
+  RLS policy DDL (create/alter/drop) are all done; see "What this app
+  already has" above. Still missing:
   - **Table partitioning** (`PARTITION BY` on create, `ATTACH PARTITION` /
     `DETACH PARTITION` on alter).
   - **Richer index/trigger *create* options** (constraint options, `USING`

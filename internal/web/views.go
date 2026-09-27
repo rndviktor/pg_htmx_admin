@@ -38,6 +38,11 @@ func InitTemplates() error {
 		"contains": func(list []string, s string) bool {
 			return slices.Contains(list, s)
 		},
+		// splitList is ddl.go's comma-string -> trimmed-slice helper, reused
+		// here so the RLS Policy alter dialog's roles <select multiple> can
+		// mark the prefilled comma-joined roles string as selected the same
+		// way "contains" already does for the FK dialog's referenced columns.
+		"splitList": splitList,
 	}
 
 	pages, err := fs.Glob(htmxgolangexcercise.Files, "templates/pages/*.html")

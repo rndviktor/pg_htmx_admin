@@ -304,7 +304,7 @@ var tableCategories = []category{
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListTableIndexes(ctx, pgdb.ListTableIndexesParams{Nspname: args[0], Relname: args[1]})
 		}},
-	{Slug: "rls-policies", Label: "RLS Policies", Icon: "🛡️", Empty: "No RLS policies found.", NumArgs: 2,
+	{Slug: "rls-policies", Label: "RLS Policies", Icon: "🛡️", Empty: "No RLS policies found.", NumArgs: 2, Menu: "create-policy",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListPolicies(ctx, pgdb.ListPoliciesParams{Schemaname: args[0], Tablename: args[1]})
 		}},

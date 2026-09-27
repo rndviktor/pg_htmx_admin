@@ -429,6 +429,27 @@
                     <option value="off" {{ if eq (index .Values "enabled") "off" }}selected{{ end }}>No</option>
                 </select>
             </div>
+            {{ else if eq .Kind "policy" }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Roles (leave unchanged to keep as-is)</label>
+                {{ $selectedRoles := splitList (index .Values "roles") }}
+                <select multiple name="roles" size="4" title="Roles"
+                        class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    {{ range (index .Dropdowns "roles") }}<option value="{{ . }}" {{ if contains $selectedRoles . }}selected{{ end }}>{{ . }}</option>{{ end }}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Using expression (leave blank to keep unchanged)</label>
+                <input type="text" name="using_expr" placeholder="Leave blank to keep current value" value="{{ index .Values "using_expr" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+                       autocomplete="off" spellcheck="false">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">With check expression (leave blank to keep unchanged)</label>
+                <input type="text" name="with_check_expr" placeholder="Leave blank to keep current value" value="{{ index .Values "with_check_expr" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+                       autocomplete="off" spellcheck="false">
+            </div>
             {{ end }}
 
             <div>
