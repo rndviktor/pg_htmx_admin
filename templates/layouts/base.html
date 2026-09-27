@@ -55,6 +55,18 @@
             gap: 0.25rem;
             align-items: center;
         }
+
+        /* Every modal (DDL create/alter/drop, save-script, add-server, ...)
+           shares the same centered panel div. None of them cap its height,
+           so a dialog whose content grows taller than the viewport (e.g.
+           Alter Table with its Columns/Add columns/FK/Exclusion sections)
+           overflows with no way to scroll to Cancel/Submit. Tailwind is
+           pre-compiled with no max-h-[..vh]/overflow-y-auto combination
+           built for this, so a custom class covers all of them at once. */
+        .modal-panel {
+            max-height: 90vh;
+            overflow-y: auto;
+        }
     </style>
 
     <!-- Application scripts (split by purpose; see static/js/*.js) -->
