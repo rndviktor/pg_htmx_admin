@@ -115,9 +115,17 @@ that is missing, ordered by priority.
   require `AFTER` + `FOR EACH ROW`) (`buildCreateTrigger`,
   `internal/web/ddl.go`) — this also fixed two latent bugs, where the
   trigger form's WHEN-expression field and INSTEAD-OF checkbox existed but
-  were silently ignored by the SQL builder. The client never sends raw SQL;
-  a successful create/drop/alter refreshes the tree in place
-  (`internal/web/ddl.go`). Drop is now wired for every one of the 15 kinds
+  were silently ignored by the SQL builder. **Table partitioning** is
+  supported too: Create Table takes an optional `PARTITION BY RANGE/LIST/
+  HASH (...)` clause, and Alter Table gets `ATTACH PARTITION` (picking an
+  existing table from the same cross-schema `ref_tables` list the foreign
+  key dialog uses, plus a free-text bound — `FOR VALUES FROM (...) TO
+  (...)`/`IN (...)`/`WITH (MODULUS .., REMAINDER ..)`/`DEFAULT`, whose exact
+  shape depends on the parent's own strategy and so isn't guided) and
+  `DETACH PARTITION` (with an optional `CONCURRENTLY`) (`buildPartitionByClause`/
+  `buildAttachPartitionStmt`/`buildDetachPartitionStmt`, `internal/web/ddl.go`).
+  The client never sends raw SQL; a successful create/drop/alter refreshes
+  the tree in place (`internal/web/ddl.go`). Drop is now wired for every one of the 15 kinds
   including tables (previously missing only from the context menu, the
   server-side builder already existed). **DROP Script**: any droppable kind
   can also generate its DROP SQL into a read-only script tab without running
@@ -133,13 +141,12 @@ that is missing, ordered by priority.
 
 ### P1 — Core object management (biggest gap)
 
-- **P1.1.** **Full table DDL and broader ALTER** — Create Table, ALTER TABLE
-  (owner/schema/rename, column-level add/drop/alter/rename, foreign key,
-  exclusion and generated-column support), Rules (create/rename/drop), RLS
-  policy DDL (create/alter/drop) and richer index/trigger create options are
-  all done; see "What this app already has" above. Still missing:
-  - **Table partitioning** (`PARTITION BY` on create, `ATTACH PARTITION` /
-    `DETACH PARTITION` on alter) — the last open item for this entry.
+- ~~**P1.1.** **Full table DDL and broader ALTER**~~ — **done.** Create
+  Table, ALTER TABLE (owner/schema/rename, column-level add/drop/alter/
+  rename, foreign key, exclusion and generated-column support, table
+  partitioning), Rules (create/rename/drop), RLS policy DDL (create/alter/
+  drop) and richer index/trigger create options are all in place; see "What
+  this app already has" above.
 
 ### P2 — Data editing + maintenance
 
@@ -195,15 +202,12 @@ that is missing, ordered by priority.
 
 ## Suggested starting points
 
-The two highest-leverage projects that build most naturally on the existing
-`tree.go` / sqlc structure are:
+**P1.1 is fully done** (see "What this app already has" above — column-level
+table DDL, foreign key/exclusion/generated-column support, table
+partitioning, rules, RLS policy DDL and richer index/trigger create options
+are all in place, `internal/web/ddl.go`). The highest-leverage next project:
 
-- **P1.1 remainder: rules, RLS policy DDL, table partitioning, and richer
-  index/trigger create options** — column-level table DDL (add/drop/alter
-  column), foreign key, exclusion and generated-column support are all done
-  now (`buildAlterTableForm`/`buildForeignKeyClause`/`buildExclusionClause`/
-  `buildColumnDef`, `internal/web/ddl.go`); these four remaining pieces are
-  each net-new dialogs rather than extensions of the existing Create/Alter
-  Table forms, so they're sized independently rather than as one project, or
-- **P2.1: View/Edit Data** editable grid — arguably the higher-leverage pick
-  at this point, since P1.1's core table-DDL work is essentially done.
+- **P2.1: View/Edit Data** — an editable grid for tables and views
+  (insert/update/delete, in-cell editing, sorting, filtering, pagination,
+  CSV copy/export). The current result grid renders text only
+  (`internal/web/handlers.go`, `templates/partials/query_result.html`).

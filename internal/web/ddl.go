@@ -617,6 +617,63 @@ func buildExclusionClause(v map[string]string) (string, error) {
 	return sb.String(), nil
 }
 
+// buildPartitionByClause builds a bare "PARTITION BY <STRATEGY> (<key>)"
+// clause for the end of a CREATE TABLE statement — no leading newline or
+// trailing semicolon, the caller places those. Returns "", nil when
+// partition_strategy is blank, meaning the table isn't partitioned.
+func buildPartitionByClause(v map[string]string) (string, error) {
+	strategy := strings.ToUpper(strings.TrimSpace(v["partition_strategy"]))
+	if strategy == "" {
+		return "", nil
+	}
+	key := strings.TrimSpace(v["partition_key"])
+	if key == "" {
+		return "", formErr("Partition by: specify at least one column or expression.")
+	}
+	return "PARTITION BY " + strategy + " (" + singleLine(key) + ")", nil
+}
+
+// buildAttachPartitionStmt builds an ALTER TABLE ... ATTACH PARTITION
+// statement attaching an existing table (picked from the same ref_tables
+// list the foreign key dialog uses) to target as one of its partitions.
+// bound is the raw partition-bound clause content the admin types
+// themselves — its shape depends on target's own partition strategy (RANGE/
+// LIST/HASH), which isn't queried here, same trust model as the foreign key
+// and exclusion-constraint free-text fields. Returns "", nil when
+// attach_partition_table is blank, meaning the block was left untouched.
+func buildAttachPartitionStmt(v map[string]string, target string) (string, error) {
+	ref := strings.TrimSpace(v["attach_partition_table"])
+	if ref == "" {
+		return "", nil
+	}
+	bound := strings.TrimSpace(v["attach_partition_bound"])
+	if bound == "" {
+		return "", formErr("Attach partition: specify a bound (FROM (...) TO (...), IN (...), WITH (MODULUS ..., REMAINDER ...), or DEFAULT).")
+	}
+	schema, table := splitSchemaTable(ref)
+	stmt := "ALTER TABLE " + target + " ATTACH PARTITION " + qualIdent(schema, table)
+	if strings.EqualFold(bound, "DEFAULT") {
+		return stmt + " DEFAULT", nil
+	}
+	return stmt + " FOR VALUES " + singleLine(bound), nil
+}
+
+// buildDetachPartitionStmt builds an ALTER TABLE ... DETACH PARTITION
+// statement. Returns "", nil when detach_partition_table is blank, meaning
+// the block was left untouched.
+func buildDetachPartitionStmt(v map[string]string, target string) (string, error) {
+	ref := strings.TrimSpace(v["detach_partition_table"])
+	if ref == "" {
+		return "", nil
+	}
+	schema, table := splitSchemaTable(ref)
+	stmt := "ALTER TABLE " + target + " DETACH PARTITION " + qualIdent(schema, table)
+	if v["detach_concurrently"] == "on" {
+		stmt += " CONCURRENTLY"
+	}
+	return stmt, nil
+}
+
 // buildCreateTable generates CREATE TABLE from the raw form. Column rows are
 // posted as parallel col_name/col_type/col_nullable/col_default/col_key
 // lists — every row always submits all five fields, so the indexes stay
@@ -716,13 +773,21 @@ func buildCreateTable(form url.Values) (string, error) {
 	} else if excl != "" {
 		defs = append(defs, "    "+excl)
 	}
+	partitionBy, err := buildPartitionByClause(v)
+	if err != nil {
+		return "", err
+	}
 
 	var sb strings.Builder
 	sb.WriteString("CREATE TABLE ")
 	sb.WriteString(qualIdent(schema, name))
 	sb.WriteString("\n(\n")
 	sb.WriteString(strings.Join(defs, ",\n"))
-	sb.WriteString("\n);\n")
+	sb.WriteString("\n)")
+	if partitionBy != "" {
+		sb.WriteString("\n" + partitionBy)
+	}
+	sb.WriteString(";\n")
 	if owner := strings.TrimSpace(v["owner"]); owner != "" {
 		sb.WriteString("ALTER TABLE ")
 		sb.WriteString(qualIdent(schema, name))
@@ -1610,6 +1675,16 @@ func buildAlterTableForm(form url.Values) (string, error) {
 		return "", err
 	} else if excl != "" {
 		stmts = append(stmts, "ALTER TABLE "+target+" ADD "+excl)
+	}
+	if attach, err := buildAttachPartitionStmt(v, target); err != nil {
+		return "", err
+	} else if attach != "" {
+		stmts = append(stmts, attach)
+	}
+	if detach, err := buildDetachPartitionStmt(v, target); err != nil {
+		return "", err
+	} else if detach != "" {
+		stmts = append(stmts, detach)
 	}
 
 	if len(stmts) == 0 {

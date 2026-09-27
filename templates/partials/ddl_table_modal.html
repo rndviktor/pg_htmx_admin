@@ -185,6 +185,21 @@
             </datalist>
 
             <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Partition by (optional)</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <select name="partition_strategy" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="" {{ if eq (index .Values "partition_strategy") "" }}selected{{ end }}>(not partitioned)</option>
+                        <option value="RANGE" {{ if eq (index .Values "partition_strategy") "RANGE" }}selected{{ end }}>RANGE</option>
+                        <option value="LIST" {{ if eq (index .Values "partition_strategy") "LIST" }}selected{{ end }}>LIST</option>
+                        <option value="HASH" {{ if eq (index .Values "partition_strategy") "HASH" }}selected{{ end }}>HASH</option>
+                    </select>
+                    <input type="text" name="partition_key" placeholder="column(s) or expression, e.g. created_at" value="{{ index .Values "partition_key" }}"
+                           autocomplete="off" spellcheck="false"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono">
+                </div>
+            </div>
+
+            <div>
                 <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">SQL Preview</label>
                 <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[5rem] max-h-40 overflow-auto">
                     <pre class="text-xs font-mono text-gray-300">CREATE TABLE ...</pre>
