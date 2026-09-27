@@ -321,6 +321,31 @@
                     </div>
                 </div>
             </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Add exclusion constraint (optional)</label>
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <input type="text" name="exclude_name" placeholder="constraint name (optional)" value="{{ index .Values "exclude_name" }}"
+                           autocomplete="off" spellcheck="false"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                    <input type="text" name="exclude_method" list="ddl-am-methods" placeholder="gist" value="{{ index .Values "exclude_method" }}"
+                           autocomplete="off" spellcheck="false"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                </div>
+                <input type="text" name="exclude_elements" placeholder="room_id WITH =, during WITH &amp;&amp;" value="{{ index .Values "exclude_elements" }}"
+                       autocomplete="off" spellcheck="false"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono mb-2">
+                <input type="text" name="exclude_where" placeholder="WHERE predicate (optional)" value="{{ index .Values "exclude_where" }}"
+                       autocomplete="off" spellcheck="false"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono">
+            </div>
+            <datalist id="ddl-am-methods">
+                <option value="gist"></option>
+                <option value="btree"></option>
+                <option value="gin"></option>
+                <option value="spgist"></option>
+                <option value="brin"></option>
+            </datalist>
             {{ else if or (eq .Kind "view") (eq .Kind "matview") (eq .Kind "function") (eq .Kind "procedure") (eq .Kind "sequence") }}
             <div class="grid grid-cols-2 gap-2">
                 <div>

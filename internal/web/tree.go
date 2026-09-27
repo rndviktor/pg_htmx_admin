@@ -202,6 +202,8 @@ func constraintTypeLabel(contype string) string {
 		return "unique"
 	case "c":
 		return "check"
+	case "x":
+		return "exclusion"
 	default:
 		return contype
 	}

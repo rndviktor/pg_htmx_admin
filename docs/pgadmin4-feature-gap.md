@@ -73,8 +73,16 @@ that is missing, ordered by priority.
   modal-render time), plus MATCH/ON UPDATE/ON DELETE/DEFERRABLE
   (`buildForeignKeyClause`, `internal/web/ddl.go`). One FK per submit
   (matching the single-CHECK-constraint convention), composite keys
-  supported. The client never sends raw SQL; a successful create/drop/alter
-  refreshes the tree in place (`internal/web/ddl.go`). Drop is now wired for every one of the 13
+  supported. **Exclusion constraints** (`EXCLUDE USING <method> (<element>
+  WITH <operator>, ...) [WHERE (predicate)]`) can also be added from both
+  dialogs, as one optional free-text block styled like the CHECK constraint
+  field — raw element list/predicate, validated by Postgres at run time, no
+  operator/opclass picker (`buildExclusionClause`, `internal/web/ddl.go`); the
+  Constraints tab now labels these "exclusion" instead of the raw `x` code
+  (`constraintTypeLabel`, `internal/web/tree.go`; `ListConstraints`,
+  `internal/sqlc/postgres/queries.sql`). The client never sends raw SQL; a
+  successful create/drop/alter refreshes the tree in place
+  (`internal/web/ddl.go`). Drop is now wired for every one of the 13
   kinds including tables (previously missing only from the context menu, the
   server-side builder already existed). **DROP Script**: any droppable kind
   can also generate its DROP SQL into a read-only script tab without running
@@ -105,10 +113,12 @@ that is missing, ordered by priority.
   both Create Table and Alter Table — one FK per submit (composite keys
   supported), with MATCH/ON UPDATE/ON DELETE/DEFERRABLE and a cross-schema
   target-table + referenced-column picker (`buildForeignKeyClause`,
-  `internal/web/ddl.go`). Still missing: exclusion constraints and generated
-  columns (on both Create Table and `ALTER TABLE`), rules, RLS policies,
-  table partitioning, and richer index/trigger *create* options (constraint
-  options, `USING` storage parameters).
+  `internal/web/ddl.go`). **Exclusion constraints are now supported too**, as
+  one optional free-text block on both dialogs (raw element list/predicate,
+  no operator/opclass picker — `buildExclusionClause`, `internal/web/ddl.go`).
+  Still missing: generated columns (on both Create Table and `ALTER TABLE`),
+  rules, RLS policies, table partitioning, and richer index/trigger *create*
+  options (constraint options, `USING` storage parameters).
 
 ### P2 — Data editing + maintenance
 
@@ -167,8 +177,8 @@ that is missing, ordered by priority.
 The two highest-leverage projects that build most naturally on the existing
 `tree.go` / sqlc structure are:
 
-- **P1.1 follow-up: Exclusion constraints and generated columns**, on both
-  Create Table and `ALTER TABLE` — the column DDL and foreign key constraints
-  this used to name are now done (`buildAlterTableForm`/
-  `buildForeignKeyClause`, `internal/web/ddl.go`), or
+- **P1.1 follow-up: Generated columns** (`GENERATED ALWAYS AS (...) STORED`),
+  on both Create Table and `ALTER TABLE` — the column DDL, foreign key and
+  exclusion constraints this used to name are now done (`buildAlterTableForm`/
+  `buildForeignKeyClause`/`buildExclusionClause`, `internal/web/ddl.go`), or
 - **P2.1: View/Edit Data** editable grid.

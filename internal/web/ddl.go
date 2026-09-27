@@ -585,6 +585,36 @@ func buildForeignKeyClause(v map[string]string, form url.Values) (string, error)
 	return sb.String(), nil
 }
 
+// buildExclusionClause builds a bare EXCLUDE constraint clause — no leading
+// ALTER TABLE/ADD, since Create Table and Alter Table wrap it differently —
+// from the Exclusion constraint block's exclude_* fields. Unlike the foreign
+// key block, the element list and predicate are raw text the admin types
+// themselves (same trust model as check_expr): there is no operator/opclass
+// picker, since an EXCLUDE operator is a deliberate choice by an
+// already-Postgres-fluent admin, not a lookup a picker meaningfully de-risks.
+// Returns "", nil when exclude_elements is blank, meaning the optional block
+// was left untouched.
+func buildExclusionClause(v map[string]string) (string, error) {
+	elements := strings.TrimSpace(v["exclude_elements"])
+	if elements == "" {
+		return "", nil
+	}
+
+	var sb strings.Builder
+	if name := strings.TrimSpace(v["exclude_name"]); name != "" {
+		sb.WriteString("CONSTRAINT " + quoteIdent(name) + " ")
+	}
+	sb.WriteString("EXCLUDE ")
+	if method := strings.TrimSpace(v["exclude_method"]); method != "" {
+		sb.WriteString("USING " + quoteIfNeeded(method) + " ")
+	}
+	sb.WriteString("(" + singleLine(elements) + ")")
+	if where := strings.TrimSpace(v["exclude_where"]); where != "" {
+		sb.WriteString(" WHERE (" + singleLine(where) + ")")
+	}
+	return sb.String(), nil
+}
+
 // buildCreateTable generates CREATE TABLE from the raw form. Column rows are
 // posted as parallel col_name/col_type/col_nullable/col_default/col_key
 // lists — every row always submits all five fields, so the indexes stay
@@ -664,6 +694,11 @@ func buildCreateTable(form url.Values) (string, error) {
 		return "", err
 	} else if fk != "" {
 		defs = append(defs, "    "+fk)
+	}
+	if excl, err := buildExclusionClause(v); err != nil {
+		return "", err
+	} else if excl != "" {
+		defs = append(defs, "    "+excl)
 	}
 
 	var sb strings.Builder
@@ -1315,6 +1350,11 @@ func buildAlterTableForm(form url.Values) (string, error) {
 		return "", err
 	} else if fk != "" {
 		stmts = append(stmts, "ALTER TABLE "+target+" ADD "+fk)
+	}
+	if excl, err := buildExclusionClause(v); err != nil {
+		return "", err
+	} else if excl != "" {
+		stmts = append(stmts, "ALTER TABLE "+target+" ADD "+excl)
 	}
 
 	if len(stmts) == 0 {

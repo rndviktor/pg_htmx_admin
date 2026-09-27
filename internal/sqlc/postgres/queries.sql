@@ -223,6 +223,7 @@ SELECT c.conname || ' (' || CASE c.contype
     WHEN 'f' THEN 'foreign key'
     WHEN 'u' THEN 'unique'
     WHEN 'c' THEN 'check'
+    WHEN 'x' THEN 'exclusion'
     ELSE c.contype::text
 END || ')'
 FROM pg_constraint c
