@@ -29,38 +29,69 @@
                     <select name="timing" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
                         <option value="BEFORE" {{ if eq (index .Values "timing") "BEFORE" }}selected{{ end }}>BEFORE</option>
                         <option value="AFTER" {{ if eq (index .Values "timing") "AFTER" }}selected{{ end }}>AFTER</option>
+                        <option value="INSTEAD OF" {{ if eq (index .Values "timing") "INSTEAD OF" }}selected{{ end }}>INSTEAD OF</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Events</label>
-                    <select name="events" required class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
-                        <option value="INSERT" {{ if eq (index .Values "events") "INSERT" }}selected{{ end }}>INSERT</option>
-                        <option value="UPDATE" {{ if eq (index .Values "events") "UPDATE" }}selected{{ end }}>UPDATE</option>
-                        <option value="DELETE" {{ if eq (index .Values "events") "DELETE" }}selected{{ end }}>DELETE</option>
-                        <option value="TRUNCATE" {{ if eq (index .Values "events") "TRUNCATE" }}selected{{ end }}>TRUNCATE</option>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Level</label>
+                    <select name="level" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="ROW" {{ if ne (index .Values "level") "STATEMENT" }}selected{{ end }}>FOR EACH ROW</option>
+                        <option value="STATEMENT" {{ if eq (index .Values "level") "STATEMENT" }}selected{{ end }}>FOR EACH STATEMENT</option>
                     </select>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
-                <div>
-                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Function</label>
-                    <input type="text" name="on_function" required placeholder="public.check_status()"
-                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
-                           autocomplete="off" spellcheck="false" value="{{ index .Values "on_function" }}">
-                </div>
-                <div class="flex items-end pb-1">
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Events</label>
+                <div class="flex flex-wrap gap-4">
                     <label class="flex items-center space-x-2 text-sm text-gray-300">
-                        <input type="checkbox" name="instead" {{ if eq (index .Values "instead") "on" }}checked{{ end }} class="accent-blue-500">
-                        <span>INSTEAD OF</span>
+                        <input type="checkbox" name="events" value="INSERT" {{ if eq (index .Values "events") "INSERT" }}checked{{ end }} class="accent-blue-500">
+                        <span>INSERT</span>
+                    </label>
+                    <label class="flex items-center space-x-2 text-sm text-gray-300">
+                        <input type="checkbox" name="events" value="UPDATE" {{ if eq (index .Values "events") "UPDATE" }}checked{{ end }} class="accent-blue-500">
+                        <span>UPDATE</span>
+                    </label>
+                    <label class="flex items-center space-x-2 text-sm text-gray-300">
+                        <input type="checkbox" name="events" value="DELETE" {{ if eq (index .Values "events") "DELETE" }}checked{{ end }} class="accent-blue-500">
+                        <span>DELETE</span>
+                    </label>
+                    <label class="flex items-center space-x-2 text-sm text-gray-300">
+                        <input type="checkbox" name="events" value="TRUNCATE" {{ if eq (index .Values "events") "TRUNCATE" }}checked{{ end }} class="accent-blue-500">
+                        <span>TRUNCATE</span>
                     </label>
                 </div>
             </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Function</label>
+                <input type="text" name="on_function" required placeholder="public.check_status()"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                       autocomplete="off" spellcheck="false" value="{{ index .Values "on_function" }}">
+            </div>
+
             <div>
                 <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">When expression (optional)</label>
                 <input type="text" name="condition" placeholder="NEW.status IS DISTINCT FROM OLD.status" value="{{ index .Values "condition" }}"
-                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
                        autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div class="flex items-end pb-1">
+                    <label class="flex items-center space-x-2 text-sm text-gray-300">
+                        <input type="checkbox" name="constraint" {{ if eq (index .Values "constraint") "on" }}checked{{ end }} class="accent-blue-500">
+                        <span>Constraint trigger (requires AFTER + FOR EACH ROW)</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Deferrable</label>
+                    <select name="deferrable" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="" {{ if eq (index .Values "deferrable") "" }}selected{{ end }}>Not deferrable</option>
+                        <option value="deferrable" {{ if eq (index .Values "deferrable") "deferrable" }}selected{{ end }}>Deferrable</option>
+                        <option value="deferred" {{ if eq (index .Values "deferrable") "deferred" }}selected{{ end }}>Deferrable, initially deferred</option>
+                    </select>
+                </div>
             </div>
 
             <div>

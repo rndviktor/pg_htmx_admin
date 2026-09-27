@@ -105,10 +105,10 @@ var ddlKinds = map[string]ddlKind{
 		BuildCreate: buildCreatePublication, BuildDrop: buildDropPublication,
 		BuildAlter: buildAlterPublication},
 	"index": {Label: "Index", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateIndex, BuildDrop: buildDropIndex,
+		BuildCreateForm: buildCreateIndex, BuildDrop: buildDropIndex,
 		BuildAlter: buildAlterIndex},
 	"trigger": {Label: "Trigger", Scope: ddlScopeDB, HasCascade: true,
-		BuildCreate: buildCreateTrigger, BuildDrop: buildDropTrigger,
+		BuildCreateForm: buildCreateTrigger, BuildDrop: buildDropTrigger,
 		BuildAlter: buildAlterTrigger},
 	"rule": {Label: "Rule", Scope: ddlScopeDB, HasCascade: true,
 		BuildCreate: buildCreateRule, BuildDrop: buildDropRule,
@@ -196,11 +196,7 @@ func renderCreateDDL(kind string, form url.Values) (string, error) {
 	if k.BuildCreateForm != nil {
 		return k.BuildCreateForm(form)
 	}
-	v := formValues(form)
-	if kind == "index" {
-		v["cols"] = strings.Join(form["columns"], ",")
-	}
-	return k.BuildCreate(v)
+	return k.BuildCreate(formValues(form))
 }
 
 // fullCreateStatement returns def unchanged when it already starts with a
@@ -1023,11 +1019,25 @@ func buildDropPublication(v map[string]string) (string, error) {
 	return "DROP PUBLICATION " + quoteIdent(name) + ";\n", nil
 }
 
-func buildCreateIndex(v map[string]string) (string, error) {
+// trimmedList filters a raw multi-value form field down to its non-blank,
+// trimmed entries — the same "read the raw form for a repeated field"
+// pattern buildForeignKeyClause already uses for fk_ref_cols.
+func trimmedList(vals []string) []string {
+	var out []string
+	for _, v := range vals {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func buildCreateIndex(form url.Values) (string, error) {
+	v := formValues(form)
 	if v["schema"] == "" || v["table"] == "" {
 		return "", formErr("Target table is missing.")
 	}
-	cols := splitList(v["cols"])
+	cols := trimmedList(form["columns"])
 	if len(cols) == 0 {
 		return "", formErr("Select at least one column.")
 	}
@@ -1055,7 +1065,21 @@ func buildCreateIndex(v map[string]string) (string, error) {
 	sb.WriteString(quoteIfNeeded(method))
 	sb.WriteString(" (")
 	sb.WriteString(strings.Join(quoted, ", "))
-	sb.WriteString(");\n")
+	sb.WriteString(")")
+	if includeCols := trimmedList(form["include_cols"]); len(includeCols) > 0 {
+		quotedInc := make([]string, len(includeCols))
+		for i, c := range includeCols {
+			quotedInc[i] = quoteIdent(c)
+		}
+		sb.WriteString("\n    INCLUDE (" + strings.Join(quotedInc, ", ") + ")")
+	}
+	if params := strings.TrimSpace(v["storage_params"]); params != "" {
+		sb.WriteString("\n    WITH (" + singleLine(params) + ")")
+	}
+	if where := strings.TrimSpace(v["where_expr"]); where != "" {
+		sb.WriteString("\n    WHERE (" + singleLine(where) + ")")
+	}
+	sb.WriteString(";\n")
 	return sb.String(), nil
 }
 
@@ -1067,7 +1091,15 @@ func buildDropIndex(v map[string]string) (string, error) {
 	return "DROP INDEX " + qualIdent(v["schema"], name) + dropCascade(v) + ";\n", nil
 }
 
-func buildCreateTrigger(v map[string]string) (string, error) {
+// buildCreateTrigger generates CREATE TRIGGER (or CREATE CONSTRAINT TRIGGER,
+// when the constraint checkbox is set). events is a checkbox group — a
+// trigger can fire on multiple event types, joined with OR — rather than
+// the single-select the form used to offer. level (ROW/STATEMENT) and the
+// WHEN condition are now both wired into the generated SQL; previously the
+// form had a "condition" field and an "instead" checkbox that the builder
+// silently ignored, and expected a "foreach_row" field the form never sent.
+func buildCreateTrigger(form url.Values) (string, error) {
+	v := formValues(form)
 	name := strings.TrimSpace(v["name"])
 	if name == "" {
 		return "", errRequired("Trigger name")
@@ -1075,30 +1107,56 @@ func buildCreateTrigger(v map[string]string) (string, error) {
 	if v["schema"] == "" || v["table"] == "" {
 		return "", formErr("Target table is missing.")
 	}
-	timing := strings.TrimSpace(v["timing"])
+	timing := strings.ToUpper(strings.TrimSpace(v["timing"]))
 	if timing == "" {
 		timing = "BEFORE"
 	}
-	events := strings.TrimSpace(v["events"])
-	if events == "" {
+	events := trimmedList(form["events"])
+	if len(events) == 0 {
 		return "", formErr("Select at least one event.")
+	}
+	for i, e := range events {
+		events[i] = strings.ToUpper(e)
 	}
 	fn := strings.TrimSpace(v["on_function"])
 	if fn == "" {
 		return "", formErr("Execution function is required.")
 	}
+	level := strings.ToUpper(strings.TrimSpace(v["level"]))
+	constraint := v["constraint"] == "on"
+	if constraint && (timing != "AFTER" || level != "ROW") {
+		return "", formErr("Constraint triggers must be AFTER and FOR EACH ROW.")
+	}
 
 	var sb strings.Builder
-	sb.WriteString("CREATE TRIGGER ")
+	if constraint {
+		sb.WriteString("CREATE CONSTRAINT TRIGGER ")
+	} else {
+		sb.WriteString("CREATE TRIGGER ")
+	}
 	sb.WriteString(quoteIdent(name))
 	sb.WriteString("\n    ")
-	sb.WriteString(strings.ToUpper(timing))
+	sb.WriteString(timing)
 	sb.WriteString(" ")
-	sb.WriteString(strings.ToUpper(events))
+	sb.WriteString(strings.Join(events, " OR "))
 	sb.WriteString(" ON ")
 	sb.WriteString(qualIdent(v["schema"], v["table"]))
-	if v["foreach_row"] == "on" {
+	if constraint {
+		switch v["deferrable"] {
+		case "deferrable":
+			sb.WriteString("\n    DEFERRABLE")
+		case "deferred":
+			sb.WriteString("\n    DEFERRABLE INITIALLY DEFERRED")
+		}
+	}
+	switch level {
+	case "STATEMENT":
+		sb.WriteString("\n    FOR EACH STATEMENT")
+	default:
 		sb.WriteString("\n    FOR EACH ROW")
+	}
+	if cond := strings.TrimSpace(v["condition"]); cond != "" {
+		sb.WriteString("\n    WHEN (" + singleLine(cond) + ")")
 	}
 	sb.WriteString("\n    EXECUTE FUNCTION ")
 	sb.WriteString(fn)

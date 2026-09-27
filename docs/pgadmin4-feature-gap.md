@@ -105,11 +105,20 @@ that is missing, ordered by priority.
   list every dialog already fetches — leaving it empty applies the policy to
   `PUBLIC`), and optional `USING`/`WITH CHECK` expressions
   (`buildCreatePolicy`, `internal/web/ddl.go`); `DROP POLICY` has no
-  `CASCADE` clause in Postgres, unlike every other droppable kind. The
-  client never sends raw SQL; a successful create/drop/alter refreshes the
-  tree in place (`internal/web/ddl.go`). Drop is now wired for every one of
-  the 15 kinds including tables (previously missing only from the context
-  menu, the
+  `CASCADE` clause in Postgres, unlike every other droppable kind.
+  **Create Index and Create Trigger are richer now too**: indexes get
+  `INCLUDE` columns, `WITH (...)` storage parameters and a partial-index
+  `WHERE` predicate (`buildCreateIndex`); triggers get multiple OR'd events
+  (was a single-select), a `FOR EACH ROW`/`STATEMENT` level, `INSTEAD OF`
+  as a proper timing option, and constraint-trigger support (`CREATE
+  CONSTRAINT TRIGGER ... DEFERRABLE [INITIALLY DEFERRED]`, validated to
+  require `AFTER` + `FOR EACH ROW`) (`buildCreateTrigger`,
+  `internal/web/ddl.go`) — this also fixed two latent bugs, where the
+  trigger form's WHEN-expression field and INSTEAD-OF checkbox existed but
+  were silently ignored by the SQL builder. The client never sends raw SQL;
+  a successful create/drop/alter refreshes the tree in place
+  (`internal/web/ddl.go`). Drop is now wired for every one of the 15 kinds
+  including tables (previously missing only from the context menu, the
   server-side builder already existed). **DROP Script**: any droppable kind
   can also generate its DROP SQL into a read-only script tab without running
   it (`GET /api/ddl/{kind}/drop-script`), blocked the same way the run-it
@@ -126,14 +135,11 @@ that is missing, ordered by priority.
 
 - **P1.1.** **Full table DDL and broader ALTER** — Create Table, ALTER TABLE
   (owner/schema/rename, column-level add/drop/alter/rename, foreign key,
-  exclusion and generated-column support), Rules (create/rename/drop) and
-  RLS policy DDL (create/alter/drop) are all done; see "What this app
-  already has" above. Still missing:
+  exclusion and generated-column support), Rules (create/rename/drop), RLS
+  policy DDL (create/alter/drop) and richer index/trigger create options are
+  all done; see "What this app already has" above. Still missing:
   - **Table partitioning** (`PARTITION BY` on create, `ATTACH PARTITION` /
-    `DETACH PARTITION` on alter).
-  - **Richer index/trigger *create* options** (constraint options, `USING`
-    storage parameters) — the existing Create Index/Create Trigger dialogs
-    cover basic create only.
+    `DETACH PARTITION` on alter) — the last open item for this entry.
 
 ### P2 — Data editing + maintenance
 

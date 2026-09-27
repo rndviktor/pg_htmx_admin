@@ -36,18 +36,41 @@
                 </div>
             </div>
 
-            <div>
-                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Indexed columns</label>
-                <select name="columns" multiple required size="6"
-                        class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
-                    {{ range (index .Dropdowns "columns") }}<option value="{{ . }}">{{ . }}</option>{{ end }}
-                </select>
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Indexed columns</label>
+                    <select name="columns" multiple required size="6"
+                            class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        {{ range (index .Dropdowns "columns") }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Include columns (optional)</label>
+                    <select name="include_cols" multiple size="6"
+                            class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        {{ range (index .Dropdowns "columns") }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+                    </select>
+                </div>
             </div>
 
             <label class="flex items-center space-x-2 text-sm text-gray-300">
                 <input type="checkbox" name="unique" {{ if eq (index .Values "unique") "on" }}checked{{ end }} class="accent-blue-500">
                 <span>UNIQUE</span>
             </label>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Storage parameters (optional)</label>
+                <input type="text" name="storage_params" placeholder="fillfactor = 70" value="{{ index .Values "storage_params" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+                       autocomplete="off" spellcheck="false">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Where predicate (optional, partial index)</label>
+                <input type="text" name="where_expr" placeholder="status = 'active'" value="{{ index .Values "where_expr" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+                       autocomplete="off" spellcheck="false">
+            </div>
 
             <div>
                 <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">SQL Preview</label>
