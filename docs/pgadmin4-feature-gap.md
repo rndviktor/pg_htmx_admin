@@ -80,9 +80,15 @@ that is missing, ordered by priority.
   operator/opclass picker (`buildExclusionClause`, `internal/web/ddl.go`); the
   Constraints tab now labels these "exclusion" instead of the raw `x` code
   (`constraintTypeLabel`, `internal/web/tree.go`; `ListConstraints`,
-  `internal/sqlc/postgres/queries.sql`). The client never sends raw SQL; a
-  successful create/drop/alter refreshes the tree in place
-  (`internal/web/ddl.go`). Drop is now wired for every one of the 13
+  `internal/sqlc/postgres/queries.sql`). **Generated columns**
+  (`GENERATED ALWAYS AS (...) STORED`) are supported too, on both a new
+  column in Create Table and a new column added via Alter Table — mutually
+  exclusive with a default, which is a form error rather than one silently
+  overriding the other (`buildColumnDef`, `internal/web/ddl.go`). Converting
+  an *existing* column to generated isn't offered since Postgres itself has
+  no such `ALTER COLUMN` form — only a newly added column can be generated.
+  The client never sends raw SQL; a successful create/drop/alter refreshes
+  the tree in place (`internal/web/ddl.go`). Drop is now wired for every one of the 13
   kinds including tables (previously missing only from the context menu, the
   server-side builder already existed). **DROP Script**: any droppable kind
   can also generate its DROP SQL into a read-only script tab without running
@@ -116,9 +122,11 @@ that is missing, ordered by priority.
   `internal/web/ddl.go`). **Exclusion constraints are now supported too**, as
   one optional free-text block on both dialogs (raw element list/predicate,
   no operator/opclass picker — `buildExclusionClause`, `internal/web/ddl.go`).
-  Still missing: generated columns (on both Create Table and `ALTER TABLE`),
-  rules, RLS policies, table partitioning, and richer index/trigger *create*
-  options (constraint options, `USING` storage parameters).
+  **Generated columns are now supported too**, on new columns in both
+  dialogs — mutually exclusive with a default (`buildColumnDef`,
+  `internal/web/ddl.go`). Still missing: rules, RLS policies, table
+  partitioning, and richer index/trigger *create* options (constraint
+  options, `USING` storage parameters).
 
 ### P2 — Data editing + maintenance
 
@@ -177,8 +185,12 @@ that is missing, ordered by priority.
 The two highest-leverage projects that build most naturally on the existing
 `tree.go` / sqlc structure are:
 
-- **P1.1 follow-up: Generated columns** (`GENERATED ALWAYS AS (...) STORED`),
-  on both Create Table and `ALTER TABLE` — the column DDL, foreign key and
-  exclusion constraints this used to name are now done (`buildAlterTableForm`/
-  `buildForeignKeyClause`/`buildExclusionClause`, `internal/web/ddl.go`), or
-- **P2.1: View/Edit Data** editable grid.
+- **P1.1 remainder: rules, RLS policy DDL, table partitioning, and richer
+  index/trigger create options** — column-level table DDL (add/drop/alter
+  column), foreign key, exclusion and generated-column support are all done
+  now (`buildAlterTableForm`/`buildForeignKeyClause`/`buildExclusionClause`/
+  `buildColumnDef`, `internal/web/ddl.go`); these four remaining pieces are
+  each net-new dialogs rather than extensions of the existing Create/Alter
+  Table forms, so they're sized independently rather than as one project, or
+- **P2.1: View/Edit Data** editable grid — arguably the higher-leverage pick
+  at this point, since P1.1's core table-DDL work is essentially done.

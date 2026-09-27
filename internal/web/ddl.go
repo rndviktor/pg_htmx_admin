@@ -623,16 +623,26 @@ func buildExclusionClause(v map[string]string) (string, error) {
 // PRIMARY KEY, multi-column ok) or "uniq" (inline UNIQUE). The optional owner
 // is applied as a follow-up ALTER TABLE, which is the only portable form.
 // buildColumnDef renders a single column definition (name, type, optional
-// NOT NULL / DEFAULT), shared by CREATE TABLE and ALTER TABLE ADD COLUMN.
-func buildColumnDef(name, typ, nullable, def string) string {
+// NOT NULL / DEFAULT or GENERATED ALWAYS AS ... STORED), shared by CREATE
+// TABLE and ALTER TABLE ADD COLUMN. A generated expression and a default are
+// mutually exclusive in Postgres, so both being set is a form error rather
+// than one silently overriding the other. Converting an *existing* column to
+// generated isn't supported by Postgres at all (only ADD COLUMN can specify
+// GENERATED ALWAYS AS), so this only applies where a column is being created.
+func buildColumnDef(name, typ, nullable, def, generated string) (string, error) {
 	line := quoteIdent(name) + " " + singleLine(typ)
 	if nullable == "NO" {
 		line += " NOT NULL"
 	}
-	if def != "" {
+	if generated != "" {
+		if def != "" {
+			return "", formErr("Column " + name + ": a generated column cannot also have a default.")
+		}
+		line += " GENERATED ALWAYS AS (" + singleLine(generated) + ") STORED"
+	} else if def != "" {
 		line += " DEFAULT " + singleLine(def)
 	}
-	return line
+	return line, nil
 }
 
 func buildCreateTable(form url.Values) (string, error) {
@@ -650,6 +660,7 @@ func buildCreateTable(form url.Values) (string, error) {
 	types := form["col_type"]
 	nulls := form["col_nullable"]
 	defaults := form["col_default"]
+	generated := form["col_generated"]
 	keys := form["col_key"]
 	at := func(list []string, i int) string {
 		if i < len(list) {
@@ -664,7 +675,7 @@ func buildCreateTable(form url.Values) (string, error) {
 		cn := at(names, i)
 		ct := at(types, i)
 		if cn == "" {
-			if ct == "" && at(defaults, i) == "" && at(keys, i) == "" {
+			if ct == "" && at(defaults, i) == "" && at(generated, i) == "" && at(keys, i) == "" {
 				continue // untouched row
 			}
 			return "", formErr("Every column needs a name.")
@@ -672,7 +683,10 @@ func buildCreateTable(form url.Values) (string, error) {
 		if ct == "" {
 			return "", formErr("Type is required for column " + cn + ".")
 		}
-		line := buildColumnDef(cn, ct, at(nulls, i), at(defaults, i))
+		line, err := buildColumnDef(cn, ct, at(nulls, i), at(defaults, i), at(generated, i))
+		if err != nil {
+			return "", err
+		}
 		switch at(keys, i) {
 		case "pk":
 			pkCols = append(pkCols, quoteIdent(cn))
@@ -1331,11 +1345,12 @@ func buildAlterTableForm(form url.Values) (string, error) {
 	addTypes := form["add_col_type"]
 	addNulls := form["add_col_nullable"]
 	addDefaults := form["add_col_default"]
+	addGenerated := form["add_col_generated"]
 	for i := range addNames {
 		cn := at(addNames, i)
 		ct := at(addTypes, i)
 		if cn == "" {
-			if ct == "" && at(addDefaults, i) == "" {
+			if ct == "" && at(addDefaults, i) == "" && at(addGenerated, i) == "" {
 				continue // untouched row
 			}
 			return "", formErr("Every new column needs a name.")
@@ -1343,7 +1358,11 @@ func buildAlterTableForm(form url.Values) (string, error) {
 		if ct == "" {
 			return "", formErr("Type is required for new column " + cn + ".")
 		}
-		stmts = append(stmts, "ALTER TABLE "+target+" ADD COLUMN "+buildColumnDef(cn, ct, at(addNulls, i), at(addDefaults, i)))
+		colDef, err := buildColumnDef(cn, ct, at(addNulls, i), at(addDefaults, i), at(addGenerated, i))
+		if err != nil {
+			return "", err
+		}
+		stmts = append(stmts, "ALTER TABLE "+target+" ADD COLUMN "+colDef)
 	}
 
 	if fk, err := buildForeignKeyClause(v, form); err != nil {

@@ -34,7 +34,7 @@
 
             <div>
                 <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Columns</label>
-                <p class="text-xs text-gray-500 mb-1">Key: PK = table primary key (pick on several rows for a composite key), UQ = inline UNIQUE. Default is a raw SQL expression (quote string literals yourself).</p>
+                <p class="text-xs text-gray-500 mb-1">Key: PK = table primary key (pick on several rows for a composite key), UQ = inline UNIQUE. Default and Generated are raw SQL expressions (quote string literals yourself); a column can have one or the other, not both.</p>
                 <div id="ddl-columns" class="space-y-1">
                     <div data-col-row class="ddl-col-row">
                         <input type="text" name="col_name" placeholder="id" value="{{ index .Values "col_name" }}" autocomplete="off" spellcheck="false"
@@ -47,6 +47,8 @@
                         </select>
                         <input type="text" name="col_default" placeholder="default" value="{{ index .Values "col_default" }}" autocomplete="off" spellcheck="false"
                                class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+                        <input type="text" name="col_generated" placeholder="generated as" value="{{ index .Values "col_generated" }}" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Generated column expression (STORED)">
                         <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
                             <option value="" {{ if not (eq (index .Values "col_key") "pk") }}{{ if not (eq (index .Values "col_key") "uniq") }}selected{{ end }}{{ end }}>-</option>
                             <option value="pk" {{ if eq (index .Values "col_key") "pk" }}selected{{ end }}>PK</option>
@@ -66,6 +68,8 @@
                         </select>
                         <input type="text" name="col_default" placeholder="now()" autocomplete="off" spellcheck="false"
                                class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+                        <input type="text" name="col_generated" placeholder="generated as" autocomplete="off" spellcheck="false"
+                               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Generated column expression (STORED)">
                         <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
                             <option value="" selected>-</option>
                             <option value="pk">PK</option>
@@ -211,6 +215,8 @@
         </select>
         <input type="text" name="col_default" placeholder="default" autocomplete="off" spellcheck="false"
                class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+        <input type="text" name="col_generated" placeholder="generated as" autocomplete="off" spellcheck="false"
+               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Generated column expression (STORED)">
         <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
             <option value="" selected>-</option>
             <option value="pk">PK</option>
