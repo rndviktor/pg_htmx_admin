@@ -308,7 +308,7 @@ var tableCategories = []category{
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListPolicies(ctx, pgdb.ListPoliciesParams{Schemaname: args[0], Tablename: args[1]})
 		}},
-	{Slug: "rules", Label: "Rules", Icon: "📜", Empty: "No rules found.", NumArgs: 2,
+	{Slug: "rules", Label: "Rules", Icon: "📜", Empty: "No rules found.", NumArgs: 2, Menu: "create-rule",
 		ListNames: func(ctx context.Context, pool *pgxpool.Pool, args ...string) ([]string, error) {
 			return q(pool).ListTableRules(ctx, pgdb.ListTableRulesParams{Schemaname: args[0], Tablename: args[1]})
 		}},

@@ -39,7 +39,7 @@ function initContextMenu() {
             schema: "Schema", table: "Table", sequence: "Sequence", view: "View",
             matview: "Materialized View", function: "Function", procedure: "Procedure",
             extension: "Extension", publication: "Publication",
-            index: "Index", trigger: "Trigger",
+            index: "Index", trigger: "Trigger", rule: "Rule",
         };
         return labels.hasOwnProperty(kind) ? "Create " + labels[kind] : "";
     }
@@ -265,7 +265,7 @@ function initContextMenu() {
             schema: "Drop Schema", table: "Drop Table", view: "Drop View", "materialized-view": "Drop Materialized View",
             sequence: "Drop Sequence", function: "Drop Function", procedure: "Drop Procedure",
             extension: "Drop Extension", publication: "Drop Publication",
-            index: "Drop Index", trigger: "Drop Trigger",
+            index: "Drop Index", trigger: "Drop Trigger", rule: "Drop Rule",
         };
         // Some tree-menu kinds use a different DDL route kind.
         const DDL_KINDS = { "materialized-view": "matview" };
@@ -300,7 +300,7 @@ function initContextMenu() {
             "materialized-view": "Alter Materialized View", sequence: "Alter Sequence",
             function: "Alter Function", procedure: "Alter Procedure",
             extension: "Alter Extension", publication: "Alter Publication",
-            index: "Alter Index", trigger: "Alter Trigger",
+            index: "Alter Index", trigger: "Alter Trigger", rule: "Alter Rule",
         };
         if (ALTER_ITEMS.hasOwnProperty(currentMenuKind)) {
             menu.appendChild(divider());

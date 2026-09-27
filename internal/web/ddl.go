@@ -110,6 +110,9 @@ var ddlKinds = map[string]ddlKind{
 	"trigger": {Label: "Trigger", Scope: ddlScopeDB, HasCascade: true,
 		BuildCreate: buildCreateTrigger, BuildDrop: buildDropTrigger,
 		BuildAlter: buildAlterTrigger},
+	"rule": {Label: "Rule", Scope: ddlScopeDB, HasCascade: true,
+		BuildCreate: buildCreateRule, BuildDrop: buildDropRule,
+		BuildAlter: buildAlterRule},
 }
 
 // ddlModalData is the view model shared by the create and drop modal partials.
@@ -1109,6 +1112,76 @@ func buildDropTrigger(v map[string]string) (string, error) {
 		return "", formErr("Target table is missing.")
 	}
 	return "DROP TRIGGER " + quoteIdent(name) + " ON " + qualIdent(v["schema"], v["table"]) + dropCascade(v) + ";\n", nil
+}
+
+// buildCreateRule generates CREATE RULE ... AS ON <event> TO <table>
+// [WHERE (...)] DO [ALSO|INSTEAD] <action>. The action is raw SQL the admin
+// types themselves — "NOTHING" or one or more commands (wrap multiple in
+// parens themselves, same trust model as check_expr/exclude_elements) —
+// since there's no reasonable picker for "the statement(s) a rule runs".
+func buildCreateRule(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Rule name")
+	}
+	if v["schema"] == "" || v["table"] == "" {
+		return "", formErr("Target table is missing.")
+	}
+	event := strings.TrimSpace(v["event"])
+	if event == "" {
+		return "", formErr("Select an event.")
+	}
+	action := strings.TrimSpace(v["action"])
+	if action == "" {
+		return "", formErr("Action is required (type NOTHING to do nothing).")
+	}
+	doKind := "ALSO"
+	if strings.EqualFold(strings.TrimSpace(v["do_kind"]), "INSTEAD") {
+		doKind = "INSTEAD"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("CREATE RULE ")
+	sb.WriteString(quoteIdent(name))
+	sb.WriteString(" AS ON ")
+	sb.WriteString(strings.ToUpper(event))
+	sb.WriteString(" TO ")
+	sb.WriteString(qualIdent(v["schema"], v["table"]))
+	if where := strings.TrimSpace(v["where_expr"]); where != "" {
+		sb.WriteString(" WHERE (" + singleLine(where) + ")")
+	}
+	sb.WriteString("\n    DO " + doKind + " " + singleLine(action))
+	sb.WriteString(";\n")
+	return sb.String(), nil
+}
+
+func buildDropRule(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Rule name")
+	}
+	if v["schema"] == "" || v["table"] == "" {
+		return "", formErr("Target table is missing.")
+	}
+	return "DROP RULE " + quoteIdent(name) + " ON " + qualIdent(v["schema"], v["table"]) + dropCascade(v) + ";\n", nil
+}
+
+// buildAlterRule emits a RENAME statement for a rule — the only property
+// Postgres lets ALTER RULE change; the event/action/WHERE clause can't be
+// altered in place (drop and recreate instead).
+func buildAlterRule(v map[string]string) (string, error) {
+	name := strings.TrimSpace(v["name"])
+	if name == "" {
+		return "", errRequired("Rule name")
+	}
+	if v["schema"] == "" || v["table"] == "" {
+		return "", formErr("Target table is missing.")
+	}
+	nn := strings.TrimSpace(v["newname"])
+	if nn == "" {
+		return "", formErr("No changes requested. Set a new name.")
+	}
+	return "ALTER RULE " + quoteIdent(name) + " ON " + qualIdent(v["schema"], v["table"]) + " RENAME TO " + quoteIdent(nn) + ";\n", nil
 }
 
 // joinStatements joins ALTER statements into one script. Attribute changes
