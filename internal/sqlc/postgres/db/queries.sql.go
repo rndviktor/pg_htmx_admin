@@ -1577,6 +1577,34 @@ func (q *Queries) GetViewGeneral(ctx context.Context, arg GetViewGeneralParams) 
 	return i, err
 }
 
+const listAllTables = `-- name: ListAllTables :many
+SELECT (schemaname || '.' || tablename)::text FROM pg_tables ORDER BY schemaname, tablename
+`
+
+// Every table across every schema in the current database, formatted
+// "schema.table", for the ALTER TABLE foreign key dialog's target-table
+// picker (which needs a cross-schema list, unlike the schema-scoped
+// ListTables above).
+func (q *Queries) ListAllTables(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAllTables)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var column_1 string
+		if err := rows.Scan(&column_1); err != nil {
+			return nil, err
+		}
+		items = append(items, column_1)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAvailableExtensions = `-- name: ListAvailableExtensions :many
 SELECT name FROM pg_available_extensions
 WHERE name NOT IN (SELECT extname FROM pg_extension)

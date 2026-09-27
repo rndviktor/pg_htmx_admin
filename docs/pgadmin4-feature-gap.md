@@ -64,9 +64,17 @@ that is missing, ordered by priority.
   rename for indexes; and enable/disable + rename for triggers. **Table's
   ALTER also covers column-level DDL**: add, drop, retype, rename and toggle
   nullability/default on existing columns, plus add new columns, from the
-  same dialog (`buildAlterTableForm`, `internal/web/ddl.go`). The client
-  never sends raw SQL; a successful create/drop/alter refreshes the tree in
-  place (`internal/web/ddl.go`). Drop is now wired for every one of the 13
+  same dialog (`buildAlterTableForm`, `internal/web/ddl.go`). **Foreign key
+  constraints** can now be added from both Create Table and Alter Table:
+  local column(s), a cross-schema target-table picker whose referenced-column
+  select is fetched live once a target is chosen (`GET
+  /api/ddl/table/fk-ref-columns`, the app's first and only cascading/
+  dependent dropdown — every other DDL dropdown is still baked once at
+  modal-render time), plus MATCH/ON UPDATE/ON DELETE/DEFERRABLE
+  (`buildForeignKeyClause`, `internal/web/ddl.go`). One FK per submit
+  (matching the single-CHECK-constraint convention), composite keys
+  supported. The client never sends raw SQL; a successful create/drop/alter
+  refreshes the tree in place (`internal/web/ddl.go`). Drop is now wired for every one of the 13
   kinds including tables (previously missing only from the context menu, the
   server-side builder already existed). **DROP Script**: any droppable kind
   can also generate its DROP SQL into a read-only script tab without running
@@ -93,10 +101,14 @@ that is missing, ordered by priority.
   **Table's ALTER now also covers column-level DDL**: add, drop, retype,
   rename and toggle nullability/default on existing columns, plus add new
   columns, all from the same dialog (`buildAlterTableForm`,
-  `internal/web/ddl.go`). Still missing: foreign key / exclusion constraints
-  and generated columns (on both Create Table and `ALTER TABLE`), rules, RLS
-  policies, table partitioning, and richer index/trigger *create* options
-  (constraint options, `USING` storage parameters).
+  `internal/web/ddl.go`). **Foreign key constraints are now supported** on
+  both Create Table and Alter Table — one FK per submit (composite keys
+  supported), with MATCH/ON UPDATE/ON DELETE/DEFERRABLE and a cross-schema
+  target-table + referenced-column picker (`buildForeignKeyClause`,
+  `internal/web/ddl.go`). Still missing: exclusion constraints and generated
+  columns (on both Create Table and `ALTER TABLE`), rules, RLS policies,
+  table partitioning, and richer index/trigger *create* options (constraint
+  options, `USING` storage parameters).
 
 ### P2 — Data editing + maintenance
 
@@ -155,8 +167,8 @@ that is missing, ordered by priority.
 The two highest-leverage projects that build most naturally on the existing
 `tree.go` / sqlc structure are:
 
-- **P1.1 follow-up: Foreign key / exclusion constraints and generated
-  columns**, on both Create Table and `ALTER TABLE` — the basic column DDL
-  this used to name (add/drop/alter/rename column) is now done
-  (`buildAlterTableForm`, `internal/web/ddl.go`), or
+- **P1.1 follow-up: Exclusion constraints and generated columns**, on both
+  Create Table and `ALTER TABLE` — the column DDL and foreign key constraints
+  this used to name are now done (`buildAlterTableForm`/
+  `buildForeignKeyClause`, `internal/web/ddl.go`), or
 - **P2.1: View/Edit Data** editable grid.

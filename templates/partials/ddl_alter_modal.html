@@ -252,6 +252,75 @@
                 <option value="timestamptz"></option>
                 <option value="uuid"></option>
             </datalist>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Add foreign key (optional)</label>
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <input type="text" name="fk_name" placeholder="constraint name (optional)" value="{{ index .Values "fk_name" }}"
+                           autocomplete="off" spellcheck="false"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                    <input type="text" name="fk_local_cols" placeholder="local column(s), e.g. customer_id" value="{{ index .Values "fk_local_cols" }}"
+                           autocomplete="off" spellcheck="false"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                </div>
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">References table</label>
+                        <select name="fk_ref_table"
+                                hx-get="/api/ddl/table/fk-ref-columns" hx-trigger="change" hx-include="closest form"
+                                hx-target="#fk-ref-cols" hx-swap="outerHTML"
+                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                            <option value="">(pick a table)</option>
+                            {{ range (index .Dropdowns "ref_tables") }}<option value="{{ . }}" {{ if eq . (index $.Values "fk_ref_table") }}selected{{ end }}>{{ . }}</option>{{ end }}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">References column(s)</label>
+                        <select multiple id="fk-ref-cols" name="fk_ref_cols" size="4" title="Referenced column(s)"
+                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                            {{ if not .FKRefColumns }}<option value="" disabled>Pick a target table first</option>{{ end }}
+                            {{ range .FKRefColumns }}<option value="{{ . }}" {{ if contains $.FKRefColsSelected . }}selected{{ end }}>{{ . }}</option>{{ end }}
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Match</label>
+                        <select name="fk_match" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                            <option value="" {{ if ne (index .Values "fk_match") "FULL" }}selected{{ end }}>SIMPLE</option>
+                            <option value="FULL" {{ if eq (index .Values "fk_match") "FULL" }}selected{{ end }}>FULL</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Deferrable</label>
+                        <select name="fk_deferrable" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                            <option value="" {{ if eq (index .Values "fk_deferrable") "" }}selected{{ end }}>Not deferrable</option>
+                            <option value="deferrable" {{ if eq (index .Values "fk_deferrable") "deferrable" }}selected{{ end }}>Deferrable</option>
+                            <option value="deferred" {{ if eq (index .Values "fk_deferrable") "deferred" }}selected{{ end }}>Deferrable, initially deferred</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">On update</label>
+                        <select name="fk_on_update" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                            <option value="" {{ if eq (index .Values "fk_on_update") "" }}selected{{ end }}>NO ACTION</option>
+                            <option value="RESTRICT" {{ if eq (index .Values "fk_on_update") "RESTRICT" }}selected{{ end }}>RESTRICT</option>
+                            <option value="CASCADE" {{ if eq (index .Values "fk_on_update") "CASCADE" }}selected{{ end }}>CASCADE</option>
+                            <option value="SET NULL" {{ if eq (index .Values "fk_on_update") "SET NULL" }}selected{{ end }}>SET NULL</option>
+                            <option value="SET DEFAULT" {{ if eq (index .Values "fk_on_update") "SET DEFAULT" }}selected{{ end }}>SET DEFAULT</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">On delete</label>
+                        <select name="fk_on_delete" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs">
+                            <option value="" {{ if eq (index .Values "fk_on_delete") "" }}selected{{ end }}>NO ACTION</option>
+                            <option value="RESTRICT" {{ if eq (index .Values "fk_on_delete") "RESTRICT" }}selected{{ end }}>RESTRICT</option>
+                            <option value="CASCADE" {{ if eq (index .Values "fk_on_delete") "CASCADE" }}selected{{ end }}>CASCADE</option>
+                            <option value="SET NULL" {{ if eq (index .Values "fk_on_delete") "SET NULL" }}selected{{ end }}>SET NULL</option>
+                            <option value="SET DEFAULT" {{ if eq (index .Values "fk_on_delete") "SET DEFAULT" }}selected{{ end }}>SET DEFAULT</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
             {{ else if or (eq .Kind "view") (eq .Kind "matview") (eq .Kind "function") (eq .Kind "procedure") (eq .Kind "sequence") }}
             <div class="grid grid-cols-2 gap-2">
                 <div>

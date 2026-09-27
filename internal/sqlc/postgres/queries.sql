@@ -75,6 +75,13 @@ ORDER BY 1;
 -- name: ListTables :many
 SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY 1;
 
+-- name: ListAllTables :many
+-- Every table across every schema in the current database, formatted
+-- "schema.table", for the ALTER TABLE foreign key dialog's target-table
+-- picker (which needs a cross-schema list, unlike the schema-scoped
+-- ListTables above).
+SELECT (schemaname || '.' || tablename)::text FROM pg_tables ORDER BY schemaname, tablename;
+
 -- name: ListViews :many
 SELECT viewname FROM pg_views WHERE schemaname = $1 ORDER BY 1;
 

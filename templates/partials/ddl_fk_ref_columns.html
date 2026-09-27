@@ -1,0 +1,5 @@
+<select multiple id="fk-ref-cols" name="fk_ref_cols"
+        class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" size="4" title="Referenced column(s)">
+    {{ if not .Columns }}<option value="" disabled>Pick a target table first</option>{{ end }}
+    {{ range .Columns }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+</select>

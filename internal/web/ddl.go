@@ -136,6 +136,13 @@ type ddlModalData struct {
 	// ExistingColumns holds the table's current columns for the Alter Table
 	// dialog's per-column edit/drop rows.
 	ExistingColumns []existingColumn
+	// FKRefColumns holds the Foreign key section's currently-chosen target
+	// table's columns (for the "referenced columns" <select multiple>), and
+	// FKRefColsSelected which of those were selected — both stay empty until
+	// a target table is chosen, and are only repopulated across a
+	// rerender-with-error so the choice survives a failed submit.
+	FKRefColumns      []string
+	FKRefColsSelected []string
 }
 
 // existingColumn is one row of the Alter Table dialog's per-column edit/drop
@@ -500,6 +507,84 @@ func singleLine(s string) string {
 	return strings.ReplaceAll(s, "\n", " ")
 }
 
+// splitSchemaTable splits a "schema.table" reference (as produced by the
+// ref_tables dropdown, ddlDropdowns) on its last dot.
+func splitSchemaTable(ref string) (schema, table string) {
+	if i := strings.LastIndex(ref, "."); i >= 0 {
+		return ref[:i], ref[i+1:]
+	}
+	return "", ref
+}
+
+// fkRefAction renders a foreign key's ON UPDATE/ON DELETE action, silently
+// dropping anything outside the fixed keyword set the fk_on_update/
+// fk_on_delete selects offer (same lenient convention as this file's other
+// tri-state selects, e.g. sequence "cycle" or database "allowconn": an
+// unrecognized value is treated as "unspecified" rather than an error).
+func fkRefAction(clause, action string) string {
+	switch action {
+	case "NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT":
+		return " " + clause + " " + action
+	default:
+		return ""
+	}
+}
+
+// buildForeignKeyClause builds a bare FOREIGN KEY constraint clause — no
+// leading ALTER TABLE/ADD, since Create Table and Alter Table wrap it
+// differently — from the FK dialog's fk_* fields. Returns "", nil when
+// fk_ref_table is blank, meaning the optional FK block was left untouched.
+func buildForeignKeyClause(v map[string]string, form url.Values) (string, error) {
+	ref := strings.TrimSpace(v["fk_ref_table"])
+	if ref == "" {
+		return "", nil
+	}
+	localCols := splitList(v["fk_local_cols"])
+	if len(localCols) == 0 {
+		return "", formErr("Foreign key: pick at least one local column.")
+	}
+	var refCols []string
+	for _, c := range form["fk_ref_cols"] {
+		if c = strings.TrimSpace(c); c != "" {
+			refCols = append(refCols, c)
+		}
+	}
+	if len(refCols) == 0 {
+		return "", formErr("Foreign key: pick at least one referenced column.")
+	}
+	if len(localCols) != len(refCols) {
+		return "", formErr("Foreign key: local and referenced column counts must match.")
+	}
+
+	quoted := func(cols []string) []string {
+		out := make([]string, len(cols))
+		for i, c := range cols {
+			out[i] = quoteIdent(c)
+		}
+		return out
+	}
+	schema, table := splitSchemaTable(ref)
+
+	var sb strings.Builder
+	if name := strings.TrimSpace(v["fk_name"]); name != "" {
+		sb.WriteString("CONSTRAINT " + quoteIdent(name) + " ")
+	}
+	sb.WriteString("FOREIGN KEY (" + strings.Join(quoted(localCols), ", ") + ") REFERENCES " +
+		qualIdent(schema, table) + " (" + strings.Join(quoted(refCols), ", ") + ")")
+	if v["fk_match"] == "FULL" {
+		sb.WriteString(" MATCH FULL")
+	}
+	sb.WriteString(fkRefAction("ON UPDATE", v["fk_on_update"]))
+	sb.WriteString(fkRefAction("ON DELETE", v["fk_on_delete"]))
+	switch v["fk_deferrable"] {
+	case "deferrable":
+		sb.WriteString(" DEFERRABLE")
+	case "deferred":
+		sb.WriteString(" DEFERRABLE INITIALLY DEFERRED")
+	}
+	return sb.String(), nil
+}
+
 // buildCreateTable generates CREATE TABLE from the raw form. Column rows are
 // posted as parallel col_name/col_type/col_nullable/col_default/col_key
 // lists — every row always submits all five fields, so the indexes stay
@@ -574,6 +659,11 @@ func buildCreateTable(form url.Values) (string, error) {
 	}
 	if c := strings.TrimSpace(v["check_expr"]); c != "" {
 		defs = append(defs, "    CHECK ("+singleLine(c)+")")
+	}
+	if fk, err := buildForeignKeyClause(v, form); err != nil {
+		return "", err
+	} else if fk != "" {
+		defs = append(defs, "    "+fk)
 	}
 
 	var sb strings.Builder
@@ -1221,6 +1311,12 @@ func buildAlterTableForm(form url.Values) (string, error) {
 		stmts = append(stmts, "ALTER TABLE "+target+" ADD COLUMN "+buildColumnDef(cn, ct, at(addNulls, i), at(addDefaults, i)))
 	}
 
+	if fk, err := buildForeignKeyClause(v, form); err != nil {
+		return "", err
+	} else if fk != "" {
+		stmts = append(stmts, "ALTER TABLE "+target+" ADD "+fk)
+	}
+
 	if len(stmts) == 0 {
 		return "", formErr("No changes requested.")
 	}
@@ -1579,6 +1675,15 @@ func (s *Server) ddlDropdowns(ctx context.Context, kind string, pool *pgxpool.Po
 		} else {
 			log.Printf("ddl dropdowns[ListSchemas]: %v", err)
 		}
+		if kind == "table" {
+			// Create/Alter Table's foreign key section picks a target table
+			// from every schema, not just the current one.
+			if refTables, err := queries.ListAllTables(ctx); err == nil {
+				dd["ref_tables"] = refTables
+			} else {
+				log.Printf("ddl dropdowns[ListAllTables]: %v", err)
+			}
+		}
 	case "index":
 		if table == "" || schema == "" {
 			break
@@ -1733,6 +1838,36 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDDLFKRefColumns serves the Create/Alter Table Foreign key section's
+// cascading "referenced columns" select: fired via hx-get/hx-trigger="change"
+// when the target-table select changes, it returns that table's columns as a
+// fresh <select multiple>, swapped in with hx-swap="outerHTML". This is the
+// one dependent-dropdown in the app — every other DDL dropdown is baked once
+// at modal-render time (ddlDropdowns) instead of re-fetched live.
+func (s *Server) handleDDLFKRefColumns(w http.ResponseWriter, r *http.Request) {
+	sid, err := strconv.ParseInt(r.URL.Query().Get("server_id"), 10, 64)
+	if err != nil || sid < 1 {
+		RenderPartial(w, "ddl_fk_ref_columns.html", map[string]any{})
+		return
+	}
+	db := r.URL.Query().Get("db")
+	ref := strings.TrimSpace(r.URL.Query().Get("fk_ref_table"))
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var cols []string
+	if ref != "" {
+		if pool, perr := s.ddlTargetPool(ctx, "table", sid, db); perr != nil {
+			log.Printf("DDL fk ref columns pool: %v", perr)
+		} else {
+			schema, table := splitSchemaTable(ref)
+			cols = s.fkTargetColumns(ctx, pool, schema, table)
+		}
+	}
+	RenderPartial(w, "ddl_fk_ref_columns.html", map[string]any{"Columns": cols})
+}
+
 // handleDDLPreview re-renders the SQL preview panel from the current form
 // values. Errors are rendered inside the preview instead of blocking the form.
 func (s *Server) handleDDLPreview(w http.ResponseWriter, r *http.Request) {
@@ -1826,18 +1961,21 @@ func (s *Server) handleDDLCreate(w http.ResponseWriter, r *http.Request) {
 		dd, _ = s.ddlDropdowns(ctx, kind, pool, schema, table)
 	}
 
+	refCols, refSelected := s.fkRerenderFields(ctx, pool, kind, r.Form)
 	rerender := func(errMsg string) {
 		s.renderDDLModal(w, ddlModalData{
-			Partial:   "ddl_" + kind + "_modal.html",
-			Kind:      kind,
-			ServerID:  sid,
-			FolderID:  folderID,
-			DB:        db,
-			Schema:    schema,
-			Table:     table,
-			Values:    formValues(r.Form),
-			Dropdowns: dd,
-			Error:     errMsg,
+			Partial:           "ddl_" + kind + "_modal.html",
+			Kind:              kind,
+			ServerID:          sid,
+			FolderID:          folderID,
+			DB:                db,
+			Schema:            schema,
+			Table:             table,
+			Values:            formValues(r.Form),
+			Dropdowns:         dd,
+			FKRefColumns:      refCols,
+			FKRefColsSelected: refSelected,
+			Error:             errMsg,
 		})
 	}
 
@@ -2215,6 +2353,47 @@ func (s *Server) tableExistingColumns(ctx context.Context, pool *pgxpool.Pool, s
 	return cols
 }
 
+// fkTargetColumns fetches a table's column names for the Foreign key
+// section's "referenced columns" select, once a target table has been
+// chosen — used both by handleDDLFKRefColumns (the cascading request fired
+// when the target-table select changes) and by the create/alter rerender
+// paths (to repopulate the select across a validation error).
+func (s *Server) fkTargetColumns(ctx context.Context, pool *pgxpool.Pool, schema, table string) []string {
+	if pool == nil || schema == "" || table == "" {
+		return nil
+	}
+	rows, err := pgdb.New(pool).GetTableColumnsDetailed(ctx, pgdb.GetTableColumnsDetailedParams{
+		Column1: pgtype.Text{String: schema, Valid: true},
+		Column2: pgtype.Text{String: table, Valid: true},
+	})
+	if err != nil {
+		log.Printf("fk target columns %q: %v", table, err)
+		return nil
+	}
+	cols := make([]string, 0, len(rows))
+	for _, c := range rows {
+		cols = append(cols, getString(c.ColumnName))
+	}
+	return cols
+}
+
+// fkRerenderFields repopulates the Foreign key section's referenced-columns
+// select across a create/alter rerender-with-error, so a previously chosen
+// target table and column selection survive a failed submit instead of
+// resetting to empty. Only relevant for kind "table"; returns (nil, nil)
+// otherwise or when no target table was chosen yet.
+func (s *Server) fkRerenderFields(ctx context.Context, pool *pgxpool.Pool, kind string, form url.Values) (refColumns, refSelected []string) {
+	if kind != "table" {
+		return nil, nil
+	}
+	ref := strings.TrimSpace(form.Get("fk_ref_table"))
+	if ref == "" {
+		return nil, nil
+	}
+	schema, table := splitSchemaTable(ref)
+	return s.fkTargetColumns(ctx, pool, schema, table), form["fk_ref_cols"]
+}
+
 // existingColumnsFromForm rebuilds the Alter Table dialog's column rows from
 // a rejected submission's raw form values, so a validation error re-renders
 // the dialog with whatever the user had typed rather than reverting to the
@@ -2318,20 +2497,23 @@ func (s *Server) handleDDLAlter(w http.ResponseWriter, r *http.Request) {
 	if kind == "table" {
 		existingCols = existingColumnsFromForm(r.Form)
 	}
+	refCols, refSelected := s.fkRerenderFields(ctx, pool, kind, r.Form)
 	rerender := func(errMsg string) {
 		s.renderDDLModal(w, ddlModalData{
-			Partial:         "ddl_alter_modal.html",
-			Kind:            kind,
-			ServerID:        sid,
-			FolderID:        folderID,
-			DB:              db,
-			Schema:          schema,
-			Table:           table,
-			Name:            name,
-			Values:          formValues(r.Form),
-			Dropdowns:       dd,
-			ExistingColumns: existingCols,
-			Error:           errMsg,
+			Partial:           "ddl_alter_modal.html",
+			Kind:              kind,
+			ServerID:          sid,
+			FolderID:          folderID,
+			DB:                db,
+			Schema:            schema,
+			Table:             table,
+			Name:              name,
+			Values:            formValues(r.Form),
+			Dropdowns:         dd,
+			ExistingColumns:   existingCols,
+			FKRefColumns:      refCols,
+			FKRefColsSelected: refSelected,
+			Error:             errMsg,
 		})
 	}
 

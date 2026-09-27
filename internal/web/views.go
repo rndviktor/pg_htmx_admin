@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"slices"
 )
 
 // StaticHandler serves the embedded assets under /static/ (JS, CSS, ...).
@@ -31,6 +32,12 @@ func InitTemplates() error {
 
 	funcMap := template.FuncMap{
 		"add": func(a, b int) int { return a + b },
+		// contains reports whether list holds s — used by the Foreign key
+		// section's referenced-columns select to mark previously chosen
+		// options as selected across a rerender-with-error.
+		"contains": func(list []string, s string) bool {
+			return slices.Contains(list, s)
+		},
 	}
 
 	pages, err := fs.Glob(htmxgolangexcercise.Files, "templates/pages/*.html")
