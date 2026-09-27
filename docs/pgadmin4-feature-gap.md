@@ -104,29 +104,19 @@ that is missing, ordered by priority.
 
 ### P1 — Core object management (biggest gap)
 
-- **P1.1.** **Full table DDL and broader ALTER** — **Create Table is now wired**: the
-  Tables folder (`internal/web/tree.go:234`) opens a Create Table dialog with
-  per-column name, type, nullability, default and primary key / unique keys
-  plus a CHECK constraint (`templates/partials/ddl_table_modal.html`).
-  **ALTER now covers all 13 DDL kinds**: database, role, tablespace, schema,
-  table, view, materialized view, sequence, function, procedure, extension,
-  publication, index and trigger all open pre-filled edit-in-place dialogs
-  (`internal/web/ddl.go`, `templates/partials/ddl_alter_modal.html`).
-  **Table's ALTER now also covers column-level DDL**: add, drop, retype,
-  rename and toggle nullability/default on existing columns, plus add new
-  columns, all from the same dialog (`buildAlterTableForm`,
-  `internal/web/ddl.go`). **Foreign key constraints are now supported** on
-  both Create Table and Alter Table — one FK per submit (composite keys
-  supported), with MATCH/ON UPDATE/ON DELETE/DEFERRABLE and a cross-schema
-  target-table + referenced-column picker (`buildForeignKeyClause`,
-  `internal/web/ddl.go`). **Exclusion constraints are now supported too**, as
-  one optional free-text block on both dialogs (raw element list/predicate,
-  no operator/opclass picker — `buildExclusionClause`, `internal/web/ddl.go`).
-  **Generated columns are now supported too**, on new columns in both
-  dialogs — mutually exclusive with a default (`buildColumnDef`,
-  `internal/web/ddl.go`). Still missing: rules, RLS policies, table
-  partitioning, and richer index/trigger *create* options (constraint
-  options, `USING` storage parameters).
+- **P1.1.** **Full table DDL and broader ALTER** — Create Table, ALTER TABLE
+  (owner/schema/rename, column-level add/drop/alter/rename, foreign key,
+  exclusion and generated-column support) are all done; see "What this app
+  already has" above. Still missing:
+  - **Rules** (`CREATE RULE ... AS ON ... DO ...` / `ALTER` / `DROP`) —
+    currently read-only display only.
+  - **RLS policy DDL** (`CREATE POLICY` / `ALTER POLICY` / `DROP POLICY`) —
+    also currently read-only display only.
+  - **Table partitioning** (`PARTITION BY` on create, `ATTACH PARTITION` /
+    `DETACH PARTITION` on alter).
+  - **Richer index/trigger *create* options** (constraint options, `USING`
+    storage parameters) — the existing Create Index/Create Trigger dialogs
+    cover basic create only.
 
 ### P2 — Data editing + maintenance
 
