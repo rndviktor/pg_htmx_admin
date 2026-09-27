@@ -38,6 +38,23 @@
             gap: 0.25rem;
             align-items: center;
         }
+
+        /* Alter Table dialog: one grid row per existing column (name label,
+           rename, type, nullable, default, drop) and one per new column
+           (name, type, nullable, default, remove button) — different item
+           counts than .ddl-col-row above, so they get their own templates. */
+        .ddl-edit-col-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1.3fr 0.9fr 1.3fr 0.8fr;
+            gap: 0.25rem;
+            align-items: center;
+        }
+        .ddl-addcol-row {
+            display: grid;
+            grid-template-columns: 1.3fr 1.3fr 0.9fr 1.3fr 1.5rem;
+            gap: 0.25rem;
+            align-items: center;
+        }
     </style>
 
     <!-- Application scripts (split by purpose; see static/js/*.js) -->

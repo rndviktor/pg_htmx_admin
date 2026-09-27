@@ -115,18 +115,20 @@
 
     // Creates a fresh blank column row from the hidden template. The row is a
     // full width (6-field) copy so at least one empty column placeholder never
-    // forces input fields onto separate lines.
-    window.ddlAddColumnRow = function () {
-        const tpl = document.getElementById("ddl-col-row-template");
-        const wrap = document.getElementById("ddl-columns");
+    // forces input fields onto separate lines. wrapID/tplID default to the
+    // Create Table modal's ids; the Alter Table modal's "Add columns" section
+    // passes its own so the two never collide.
+    window.ddlAddColumnRow = function (wrapID, tplID) {
+        const tpl = document.getElementById(tplID || "ddl-col-row-template");
+        const wrap = document.getElementById(wrapID || "ddl-columns");
         if (!tpl || !wrap) return;
         wrap.appendChild(tpl.content.cloneNode(true));
     };
 
     // Removes a column row; the first (heading) row is kept so the columns
     // block never ends up empty.
-    window.ddlRemoveColumnRow = function (btn) {
-        const wrap = document.getElementById("ddl-columns");
+    window.ddlRemoveColumnRow = function (btn, wrapID) {
+        const wrap = document.getElementById(wrapID || "ddl-columns");
         const row = btn && btn.closest("[data-col-row]");
         if (!wrap || !row) return;
         const rows = wrap.querySelectorAll("[data-col-row]");

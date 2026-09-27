@@ -61,7 +61,10 @@ that is missing, ordered by priority.
   materialized view, function, procedure and sequence (plus increment/min/max/
   cache/restart/cycle for sequences); update-version/set-schema for
   extensions (no owner/rename — Postgres has no such `ALTER EXTENSION` form);
-  rename for indexes; and enable/disable + rename for triggers. The client
+  rename for indexes; and enable/disable + rename for triggers. **Table's
+  ALTER also covers column-level DDL**: add, drop, retype, rename and toggle
+  nullability/default on existing columns, plus add new columns, from the
+  same dialog (`buildAlterTableForm`, `internal/web/ddl.go`). The client
   never sends raw SQL; a successful create/drop/alter refreshes the tree in
   place (`internal/web/ddl.go`). Drop is now wired for every one of the 13
   kinds including tables (previously missing only from the context menu, the
@@ -79,77 +82,81 @@ that is missing, ordered by priority.
 
 ### P1 — Core object management (biggest gap)
 
-1. **Full table DDL and broader ALTER** — **Create Table is now wired**: the
-   Tables folder (`internal/web/tree.go:234`) opens a Create Table dialog with
-   per-column name, type, nullability, default and primary key / unique keys
-   plus a CHECK constraint (`templates/partials/ddl_table_modal.html`).
-   **ALTER now covers all 13 DDL kinds**: database, role, tablespace, schema,
-   table, view, materialized view, sequence, function, procedure, extension,
-   publication, index and trigger all open pre-filled edit-in-place dialogs
-   (`internal/web/ddl.go`, `templates/partials/ddl_alter_modal.html`). Table's
-   ALTER covers owner/schema/rename only — no column-level changes. Still
-   missing: foreign key / exclusion constraints and generated columns (Create
-   Table and `ALTER TABLE` column DDL — add/drop/alter column), rules, RLS
-   policies, table partitioning, and richer index/trigger *create* options
-   (constraint options, `USING` storage parameters).
+- **P1.1.** **Full table DDL and broader ALTER** — **Create Table is now wired**: the
+  Tables folder (`internal/web/tree.go:234`) opens a Create Table dialog with
+  per-column name, type, nullability, default and primary key / unique keys
+  plus a CHECK constraint (`templates/partials/ddl_table_modal.html`).
+  **ALTER now covers all 13 DDL kinds**: database, role, tablespace, schema,
+  table, view, materialized view, sequence, function, procedure, extension,
+  publication, index and trigger all open pre-filled edit-in-place dialogs
+  (`internal/web/ddl.go`, `templates/partials/ddl_alter_modal.html`).
+  **Table's ALTER now also covers column-level DDL**: add, drop, retype,
+  rename and toggle nullability/default on existing columns, plus add new
+  columns, all from the same dialog (`buildAlterTableForm`,
+  `internal/web/ddl.go`). Still missing: foreign key / exclusion constraints
+  and generated columns (on both Create Table and `ALTER TABLE`), rules, RLS
+  policies, table partitioning, and richer index/trigger *create* options
+  (constraint options, `USING` storage parameters).
+
 ### P2 — Data editing + maintenance
 
-2. **View/Edit Data tool** — editable grid for tables and views with
-   insert/update/delete, in-cell editing, sorting, filtering, pagination and
-   CSV copy/export. The current result grid renders text only
-   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
-3. **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
-   **Maintenance dialog** (VACUUM, ANALYZE, REINDEX, CLUSTER); **Storage
-   Manager** for server-side backup files.
-4. **Query tool power features** — transaction control (BEGIN / COMMIT /
-   ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
-   text in `internal/web/handlers.go`), multiple result sets, execute a
-   selected statement, query timings, download results as CSV, server-side
-   result cursors. Minor query-tool stubs: the Notifications tab is never
-   written to (`templates/partials/script_tab_panel.html:227-248`), the
-   Scratch Pad is an inert textarea (:199-206), history always records
-   `"success"` (`internal/web/history.go:152`), and a table's **UPDATE Script**
-   opens an empty tab (`static/js/tabs.js:761-775`).
+- **P2.1.** **View/Edit Data tool** — editable grid for tables and views with
+  insert/update/delete, in-cell editing, sorting, filtering, pagination and
+  CSV copy/export. The current result grid renders text only
+  (`internal/web/handlers.go`, `templates/partials/query_result.html`).
+- **P2.2.** **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
+  **Maintenance dialog** (VACUUM, ANALYZE, REINDEX, CLUSTER); **Storage
+  Manager** for server-side backup files.
+- **P2.3.** **Query tool power features** — transaction control (BEGIN / COMMIT /
+  ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
+  text in `internal/web/handlers.go`), multiple result sets, execute a
+  selected statement, query timings, download results as CSV, server-side
+  result cursors. Minor query-tool stubs: the Notifications tab is never
+  written to (`templates/partials/script_tab_panel.html:227-248`), the
+  Scratch Pad is an inert textarea (:199-206), history always records
+  `"success"` (`internal/web/history.go:152`), and a table's **UPDATE Script**
+  opens an empty tab (`static/js/tabs.js:761-775`).
 
 ### P3 — Management depth
 
-5. **Role & privilege management** plus a **Grant Wizard** (grant/revoke
-   privileges across objects). Roles can be created, altered (login, superuser,
-   createdb/createrole, inherit, replication, connlimit, valid-until,
-   password) and dropped, but there is no role-membership editor and no
-   privilege-editing UI (properties only *display* ACLs).
-6. **Import/Export data dialog** (bulk CSV load/unload).
-7. **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
-   session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
-   for a single database.
+- **P3.1.** **Role & privilege management** plus a **Grant Wizard** (grant/revoke
+  privileges across objects). Roles can be created, altered (login, superuser,
+  createdb/createrole, inherit, replication, connlimit, valid-until,
+  password) and dropped, but there is no role-membership editor and no
+  privilege-editing UI (properties only *display* ACLs).
+- **P3.2.** **Import/Export data dialog** (bulk CSV load/unload).
+- **P3.3.** **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
+  session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
+  for a single database.
 
 ### P4 — Developer tools
 
-8. **Global object search** (pgAdmin's `Search objects`).
-9. **Schema Diff** — compare and synchronize two databases or schemas and
-    generate migration scripts.
-10. **ERD tool** and **PSQL terminal tool**.
-11. **Function Debugger** (pldebugger integration).
+- **P4.1.** **Global object search** (pgAdmin's `Search objects`).
+- **P4.2.** **Schema Diff** — compare and synchronize two databases or schemas and
+  generate migration scripts.
+- **P4.3.** **ERD tool** and **PSQL terminal tool**.
+- **P4.4.** **Function Debugger** (pldebugger integration).
 
 ### P5 — Platform, security and coverage
 
-12. **Real authentication & user management** — multiuser accounts, admin
-    roles, master password / encrypted stored passwords (currently stored in
-    plaintext, `internal/web/server_manager.go`), 2FA, LDAP/OAuth/webserver
-    auth sources; the session signing key is a hardcoded placeholder
-    (`internal/web/auth.go`).
-13. **Fuller object coverage** — foreign tables, user mappings, collations,
-    FTS configurations/dictionaries/parsers/templates, operators and operator
-    classes/families, statistics objects, aggregates.
-14. **Preferences UI, themes, keyboard shortcuts, drag-and-drop of objects into
-    the query editor, localization.**
+- **P5.1.** **Real authentication & user management** — multiuser accounts, admin
+  roles, master password / encrypted stored passwords (currently stored in
+  plaintext, `internal/web/server_manager.go`), 2FA, LDAP/OAuth/webserver
+  auth sources; the session signing key is a hardcoded placeholder
+  (`internal/web/auth.go`).
+- **P5.2.** **Fuller object coverage** — foreign tables, user mappings, collations,
+  FTS configurations/dictionaries/parsers/templates, operators and operator
+  classes/families, statistics objects, aggregates.
+- **P5.3.** **Preferences UI, themes, keyboard shortcuts, drag-and-drop of objects into
+  the query editor, localization.**
 
 ## Suggested starting points
 
 The two highest-leverage projects that build most naturally on the existing
 `tree.go` / sqlc structure are:
 
-- **#1: `ALTER TABLE` column DDL** (add/drop/alter column, foreign key /
-  exclusion constraints, generated columns) to round out table ALTER beyond
-  owner/schema/rename, or
-- **#2: View/Edit Data** editable grid.
+- **P1.1 follow-up: Foreign key / exclusion constraints and generated
+  columns**, on both Create Table and `ALTER TABLE` — the basic column DDL
+  this used to name (add/drop/alter/rename column) is now done
+  (`buildAlterTableForm`, `internal/web/ddl.go`), or
+- **P2.1: View/Edit Data** editable grid.

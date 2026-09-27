@@ -38,7 +38,9 @@ const (
 // BuildCreateForm, when set, receives the raw parsed form instead — CREATE
 // TABLE uses it to read its repeated column rows (parallel col_* lists that
 // formValues would collapse). BuildAlter, when set, enables the "Alter..."
-// context action for the kind.
+// context action for the kind. BuildAlterForm is BuildAlter's raw-form
+// counterpart, used the same way BuildCreateForm is: ALTER TABLE's add/edit/
+// drop column rows are parallel col_* lists that also need the raw form.
 type ddlKind struct {
 	Label           string
 	Scope           ddlScope
@@ -48,6 +50,21 @@ type ddlKind struct {
 	BuildCreate     func(v map[string]string) (string, error)
 	BuildDrop       func(v map[string]string) (string, error)
 	BuildAlter      func(v map[string]string) (string, error)
+	BuildAlterForm  func(form url.Values) (string, error)
+}
+
+// hasAlter reports whether a kind supports the "Alter..." context action,
+// via either the flattened or raw-form builder.
+func (k ddlKind) hasAlter() bool {
+	return k.BuildAlter != nil || k.BuildAlterForm != nil
+}
+
+// runAlter dispatches to whichever alter builder the kind set.
+func (k ddlKind) runAlter(form url.Values) (string, error) {
+	if k.BuildAlterForm != nil {
+		return k.BuildAlterForm(form)
+	}
+	return k.BuildAlter(formValues(form))
 }
 
 var ddlKinds = map[string]ddlKind{
@@ -65,7 +82,7 @@ var ddlKinds = map[string]ddlKind{
 		BuildAlter: buildAlterSchema},
 	"table": {Label: "Table", Scope: ddlScopeDB, HasCascade: true,
 		BuildCreateForm: buildCreateTable, BuildDrop: buildDropTable,
-		BuildAlter: buildAlterTable},
+		BuildAlterForm: buildAlterTableForm},
 	"sequence": {Label: "Sequence", Scope: ddlScopeDB, HasCascade: true,
 		BuildCreate: buildCreateSequence, BuildDrop: buildDropSequence,
 		BuildAlter: buildAlterSequence},
@@ -116,6 +133,25 @@ type ddlModalData struct {
 	// plus "encodings"/"templates" for databases, "extensions"/"schemas"
 	// for extensions and "columns" for indexes.
 	Dropdowns map[string][]string
+	// ExistingColumns holds the table's current columns for the Alter Table
+	// dialog's per-column edit/drop rows.
+	ExistingColumns []existingColumn
+}
+
+// existingColumn is one row of the Alter Table dialog's per-column edit/drop
+// section. The "*Orig" fields are echoed back as hidden inputs so
+// buildAlterTableForm can diff the submitted value against what the form was
+// pre-filled with; the plain fields are what the row displays/edits.
+type existingColumn struct {
+	OrigName     string
+	Rename       string
+	Type         string
+	TypeOrig     string
+	Nullable     string // "YES" or "NO", matching the col_nullable select values
+	NullableOrig string
+	Default      string
+	DefaultOrig  string
+	Drop         bool
 }
 
 func quoteLiteral(s string) string {
@@ -471,6 +507,19 @@ func singleLine(s string) string {
 // name and no type are untouched and skipped. Key is "pk" (table-level
 // PRIMARY KEY, multi-column ok) or "uniq" (inline UNIQUE). The optional owner
 // is applied as a follow-up ALTER TABLE, which is the only portable form.
+// buildColumnDef renders a single column definition (name, type, optional
+// NOT NULL / DEFAULT), shared by CREATE TABLE and ALTER TABLE ADD COLUMN.
+func buildColumnDef(name, typ, nullable, def string) string {
+	line := quoteIdent(name) + " " + singleLine(typ)
+	if nullable == "NO" {
+		line += " NOT NULL"
+	}
+	if def != "" {
+		line += " DEFAULT " + singleLine(def)
+	}
+	return line
+}
+
 func buildCreateTable(form url.Values) (string, error) {
 	v := formValues(form)
 	name := strings.TrimSpace(v["name"])
@@ -508,13 +557,7 @@ func buildCreateTable(form url.Values) (string, error) {
 		if ct == "" {
 			return "", formErr("Type is required for column " + cn + ".")
 		}
-		line := quoteIdent(cn) + " " + singleLine(ct)
-		if at(nulls, i) == "NO" {
-			line += " NOT NULL"
-		}
-		if d := at(defaults, i); d != "" {
-			line += " DEFAULT " + singleLine(d)
-		}
+		line := buildColumnDef(cn, ct, at(nulls, i), at(defaults, i))
 		switch at(keys, i) {
 		case "pk":
 			pkCols = append(pkCols, quoteIdent(cn))
@@ -1093,15 +1136,93 @@ func buildAlterPublication(v map[string]string) (string, error) {
 
 // buildAlterTable emits OWNER / SET SCHEMA / RENAME statements for a table.
 // Column-level changes (ADD/DROP/ALTER COLUMN, constraints) are not covered.
-func buildAlterTable(v map[string]string) (string, error) {
+// buildAlterTableForm emits OWNER / SET SCHEMA / RENAME statements for a
+// table (as buildAlterTable used to), plus per-column ADD/DROP/ALTER/RENAME
+// COLUMN statements built from the alter modal's repeated column rows.
+// Existing-column rows carry an "_orig" companion field per editable
+// attribute (col_type_orig, col_nullable_orig, col_default_orig) so a
+// statement is only emitted when the submitted value actually differs from
+// what the form was pre-filled with; new-column rows reuse buildColumnDef,
+// the same column-line builder CREATE TABLE uses.
+func buildAlterTableForm(form url.Values) (string, error) {
+	v := formValues(form)
 	name := strings.TrimSpace(v["name"])
 	if name == "" {
 		return "", errRequired("Table name")
 	}
 	schema := strings.TrimSpace(v["schema"])
-	stmts := alterOwnerSchemaRename("TABLE", schema, func(s string) string { return qualIdent(s, name) }, v, true, true)
+	qualify := func(s string) string { return qualIdent(s, name) }
+	stmts := alterOwnerSchemaRename("TABLE", schema, qualify, v, true, true)
+
+	at := func(list []string, i int) string {
+		if i < len(list) {
+			return strings.TrimSpace(list[i])
+		}
+		return ""
+	}
+	target := qualify(schema)
+
+	origNames := form["col_orig_name"]
+	renames := form["col_rename"]
+	types := form["col_type"]
+	typesOrig := form["col_type_orig"]
+	nulls := form["col_nullable"]
+	nullsOrig := form["col_nullable_orig"]
+	defaults := form["col_default"]
+	defaultsOrig := form["col_default_orig"]
+	drops := form["col_drop"]
+	for i := range origNames {
+		orig := at(origNames, i)
+		if orig == "" {
+			continue
+		}
+		if at(drops, i) == "1" {
+			stmts = append(stmts, "ALTER TABLE "+target+" DROP COLUMN "+quoteIdent(orig))
+			continue
+		}
+		if t := at(types, i); t != "" && t != at(typesOrig, i) {
+			stmts = append(stmts, "ALTER TABLE "+target+" ALTER COLUMN "+quoteIdent(orig)+" TYPE "+singleLine(t))
+		}
+		if n := at(nulls, i); n != "" && n != at(nullsOrig, i) {
+			if n == "NO" {
+				stmts = append(stmts, "ALTER TABLE "+target+" ALTER COLUMN "+quoteIdent(orig)+" SET NOT NULL")
+			} else {
+				stmts = append(stmts, "ALTER TABLE "+target+" ALTER COLUMN "+quoteIdent(orig)+" DROP NOT NULL")
+			}
+		}
+		if d, do := at(defaults, i), at(defaultsOrig, i); d != do {
+			if d == "" {
+				stmts = append(stmts, "ALTER TABLE "+target+" ALTER COLUMN "+quoteIdent(orig)+" DROP DEFAULT")
+			} else {
+				stmts = append(stmts, "ALTER TABLE "+target+" ALTER COLUMN "+quoteIdent(orig)+" SET DEFAULT "+singleLine(d))
+			}
+		}
+		if rn := at(renames, i); rn != "" && rn != orig {
+			stmts = append(stmts, "ALTER TABLE "+target+" RENAME COLUMN "+quoteIdent(orig)+" TO "+quoteIdent(rn))
+		}
+	}
+
+	addNames := form["add_col_name"]
+	addTypes := form["add_col_type"]
+	addNulls := form["add_col_nullable"]
+	addDefaults := form["add_col_default"]
+	for i := range addNames {
+		cn := at(addNames, i)
+		ct := at(addTypes, i)
+		if cn == "" {
+			if ct == "" && at(addDefaults, i) == "" {
+				continue // untouched row
+			}
+			return "", formErr("Every new column needs a name.")
+		}
+		if ct == "" {
+			return "", formErr("Type is required for new column " + cn + ".")
+		}
+		stmts = append(stmts, "ALTER TABLE "+target+" ADD COLUMN "+buildColumnDef(cn, ct, at(addNulls, i), at(addDefaults, i)))
+	}
+
 	if len(stmts) == 0 {
-		return "", formErr("No changes requested. Set an owner, schema or a new name.")
+		return "", formErr("No changes requested.")
 	}
 	return joinStatements(stmts), nil
 }
@@ -1495,7 +1616,7 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
 		return
 	}
-	if r.URL.Query().Get("action") == "alter" && ddlKinds[kind].BuildAlter == nil {
+	if r.URL.Query().Get("action") == "alter" && !ddlKinds[kind].hasAlter() {
 		log.Printf("DDL modal: alter not supported for kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Altering this object kind is not supported", http.StatusNotFound)
 		return
@@ -1543,23 +1664,28 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("action") == "alter" {
 		name := r.URL.Query().Get("name")
 		values := map[string]string{"name": name}
+		var existingCols []existingColumn
 		if perr == nil {
 			for fk, fv := range s.alterPrefill(ctx, pool, kind, name, schema, table) {
 				values[fk] = fv
 			}
+			if kind == "table" {
+				existingCols = s.tableExistingColumns(ctx, pool, schema, name)
+			}
 		}
 		s.renderDDLModal(w, ddlModalData{
-			Partial:   "ddl_alter_modal.html",
-			Kind:      kind,
-			ServerID:  sid,
-			FolderID:  folderID,
-			DB:        db,
-			Schema:    schema,
-			Table:     table,
-			Name:      name,
-			Values:    values,
-			Dropdowns: dd,
-			Error:     errMsg,
+			Partial:         "ddl_alter_modal.html",
+			Kind:            kind,
+			ServerID:        sid,
+			FolderID:        folderID,
+			DB:              db,
+			Schema:          schema,
+			Table:           table,
+			Name:            name,
+			Values:          values,
+			Dropdowns:       dd,
+			ExistingColumns: existingCols,
+			Error:           errMsg,
 		})
 		return
 	}
@@ -1626,11 +1752,12 @@ func (s *Server) handleDDLPreview(w http.ResponseWriter, r *http.Request) {
 	contents := sqlStr
 	if r.FormValue("mode") == "alter" {
 		// The alter dialog shares the preview endpoint; mode=alter routes the
-		// form values through BuildAlter instead of the create builder.
+		// form values through the kind's alter builder instead of the create
+		// builder.
 		k := ddlKinds[kind]
-		if k.BuildAlter == nil {
+		if !k.hasAlter() {
 			contents = "Error: altering this object kind is not supported."
-		} else if sqlStr, err = k.BuildAlter(formValues(r.Form)); err != nil {
+		} else if sqlStr, err = k.runAlter(r.Form); err != nil {
 			contents = "Error: " + err.Error()
 		} else {
 			contents = sqlStr
@@ -2058,13 +2185,79 @@ FROM pg_roles WHERE rolname = $1`, name).
 	return v
 }
 
+// tableExistingColumns fetches a table's current columns for a freshly
+// opened Alter Table dialog: each row's "*Orig" fields start out equal to
+// its displayed value, since nothing has been edited yet.
+func (s *Server) tableExistingColumns(ctx context.Context, pool *pgxpool.Pool, schema, table string) []existingColumn {
+	if pool == nil || schema == "" || table == "" {
+		return nil
+	}
+	rows, err := pgdb.New(pool).GetTableColumnsDetailed(ctx, pgdb.GetTableColumnsDetailedParams{
+		Column1: pgtype.Text{String: schema, Valid: true},
+		Column2: pgtype.Text{String: table, Valid: true},
+	})
+	if err != nil {
+		log.Printf("alter prefill table columns %q: %v", table, err)
+		return nil
+	}
+	cols := make([]existingColumn, 0, len(rows))
+	for _, c := range rows {
+		typ := getString(c.DataType)
+		nullable := getString(c.IsNullable)
+		def := optString(c.ColumnDefault)
+		cols = append(cols, existingColumn{
+			OrigName: getString(c.ColumnName),
+			Type: typ, TypeOrig: typ,
+			Nullable: nullable, NullableOrig: nullable,
+			Default: def, DefaultOrig: def,
+		})
+	}
+	return cols
+}
+
+// existingColumnsFromForm rebuilds the Alter Table dialog's column rows from
+// a rejected submission's raw form values, so a validation error re-renders
+// the dialog with whatever the user had typed rather than reverting to the
+// table's live column state.
+func existingColumnsFromForm(form url.Values) []existingColumn {
+	origNames := form["col_orig_name"]
+	if len(origNames) == 0 {
+		return nil
+	}
+	at := func(list []string, i int) string {
+		if i < len(list) {
+			return list[i]
+		}
+		return ""
+	}
+	renames := form["col_rename"]
+	types := form["col_type"]
+	typesOrig := form["col_type_orig"]
+	nulls := form["col_nullable"]
+	nullsOrig := form["col_nullable_orig"]
+	defaults := form["col_default"]
+	defaultsOrig := form["col_default_orig"]
+	drops := form["col_drop"]
+	cols := make([]existingColumn, len(origNames))
+	for i := range origNames {
+		cols[i] = existingColumn{
+			OrigName: at(origNames, i), Rename: at(renames, i),
+			Type: at(types, i), TypeOrig: at(typesOrig, i),
+			Nullable: at(nulls, i), NullableOrig: at(nullsOrig, i),
+			Default: at(defaults, i), DefaultOrig: at(defaultsOrig, i),
+			Drop: at(drops, i) == "1",
+		}
+	}
+	return cols
+}
+
 // handleDDLAlter builds and runs the ALTER script for kinds that support
 // edit-in-place (database, role, schema). Structure mirrors handleDDLCreate:
 // errors re-render the form with the submitted values and live dropdowns.
 func (s *Server) handleDDLAlter(w http.ResponseWriter, r *http.Request) {
 	kind := chi.URLParam(r, "kind")
 	k, ok := ddlKinds[kind]
-	if !ok || k.BuildAlter == nil {
+	if !ok || !k.hasAlter() {
 		log.Printf("DDL alter: unsupported kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Altering this object kind is not supported", http.StatusNotFound)
 		return
@@ -2121,19 +2314,24 @@ func (s *Server) handleDDLAlter(w http.ResponseWriter, r *http.Request) {
 		dd, _ = s.ddlDropdowns(ctx, kind, pool, schema, table)
 	}
 
+	var existingCols []existingColumn
+	if kind == "table" {
+		existingCols = existingColumnsFromForm(r.Form)
+	}
 	rerender := func(errMsg string) {
 		s.renderDDLModal(w, ddlModalData{
-			Partial:   "ddl_alter_modal.html",
-			Kind:      kind,
-			ServerID:  sid,
-			FolderID:  folderID,
-			DB:        db,
-			Schema:    schema,
-			Table:     table,
-			Name:      name,
-			Values:    formValues(r.Form),
-			Dropdowns: dd,
-			Error:     errMsg,
+			Partial:         "ddl_alter_modal.html",
+			Kind:            kind,
+			ServerID:        sid,
+			FolderID:        folderID,
+			DB:              db,
+			Schema:          schema,
+			Table:           table,
+			Name:            name,
+			Values:          formValues(r.Form),
+			Dropdowns:       dd,
+			ExistingColumns: existingCols,
+			Error:           errMsg,
 		})
 	}
 
@@ -2141,7 +2339,7 @@ func (s *Server) handleDDLAlter(w http.ResponseWriter, r *http.Request) {
 		rerender("Cannot reach the target database: " + perr.Error())
 		return
 	}
-	sqlStr, err := k.BuildAlter(formValues(r.Form))
+	sqlStr, err := k.runAlter(r.Form)
 	if err != nil {
 		log.Printf("DDL alter %s: build error: %v", kind, err)
 		rerender(err.Error())
