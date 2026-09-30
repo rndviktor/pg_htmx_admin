@@ -316,6 +316,55 @@ function initContextMenu() {
             menu.appendChild(alterItem);
         }
 
+        // Maintenance: Vacuum/Analyze/Cluster/Reindex, offered on the node
+        // kinds Postgres actually supports them against.
+        function maintSubmenu(entries) {
+            const row = document.createElement("div");
+            row.className = "relative group";
+            const trigger = document.createElement("button");
+            trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
+            trigger.innerHTML = '<span>Maintenance</span><span class="text-xs text-gray-500">▸</span>';
+            const sub = document.createElement("div");
+            sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[10rem]";
+            entries.forEach((entry) => {
+                const item = menuItem(entry[0], false);
+                item.addEventListener("click", () => openMaintDialog(entry[1], nodeURL, entry[2]));
+                sub.appendChild(item);
+            });
+            row.append(trigger, sub);
+            return row;
+        }
+
+        if (currentMenuKind === "table") {
+            menu.appendChild(divider());
+            menu.appendChild(maintSubmenu([
+                ["Vacuum", "vacuum", { target: "table" }],
+                ["Analyze", "analyze", { target: "table" }],
+                ["Cluster", "cluster", {}],
+                ["Reindex Table", "reindex", { reindex_target: "table" }],
+            ]));
+        } else if (currentMenuKind === "database") {
+            menu.appendChild(divider());
+            menu.appendChild(maintSubmenu([
+                ["Vacuum", "vacuum", { target: "database" }],
+                ["Analyze", "analyze", { target: "database" }],
+                ["Reindex Database", "reindex", { reindex_target: "database" }],
+            ]));
+        } else if (currentMenuKind === "index") {
+            menu.appendChild(divider());
+            const item = menuItem("Reindex Index", false);
+            item.addEventListener("click", () => {
+                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
+                openMaintDialog("reindex", nodeURL, { reindex_target: "index", name });
+            });
+            menu.appendChild(item);
+        } else if (currentMenuKind === "schema") {
+            menu.appendChild(divider());
+            const item = menuItem("Reindex Schema", false);
+            item.addEventListener("click", () => openMaintDialog("reindex", nodeURL, { reindex_target: "schema" }));
+            menu.appendChild(item);
+        }
+
         // "Properties": tables/views derive their /properties endpoint from
         // the children URL; leaf objects (materialized views, sequences,
         // functions, indexes, triggers, schemas) carry it directly as

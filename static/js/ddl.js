@@ -83,6 +83,22 @@
         openModal("/api/ddl/" + kind + "/modal?" + qs.toString());
     };
 
+    // Maintenance dialogs (Vacuum/Analyze/Cluster/Reindex): fixed verbs
+    // against the node's own context, not an object create/drop/alter, so
+    // they skip modalQuery's action/folder_id/name defaults and take their
+    // op-specific fixed fields (target, reindex_target, name) via `extra`.
+    window.openMaintDialog = function (op, nodeURL, extra) {
+        const ctx = parseObjectContext(nodeURL);
+        const qs = new URLSearchParams();
+        if (ctx.serverID) qs.set("server_id", ctx.serverID);
+        if (ctx.dbName) qs.set("db", ctx.dbName);
+        if (ctx.schema) qs.set("schema", ctx.schema);
+        if (ctx.table) qs.set("table", ctx.table);
+        Object.keys(extra || {}).forEach((k) => { if (extra[k]) qs.set(k, extra[k]); });
+        if (!qs.get("server_id")) return;
+        openModal("/api/maint/" + op + "/modal?" + qs.toString());
+    };
+
     // "DROP Script": fetches the DROP SQL for any droppable object kind and
     // opens it in a read-only script tab, without running it (unlike
     // openDropDDLDialog, which opens the preview-then-run modal).

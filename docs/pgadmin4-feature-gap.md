@@ -131,6 +131,15 @@ that is missing, ordered by priority.
   can also generate its DROP SQL into a read-only script tab without running
   it (`GET /api/ddl/{kind}/drop-script`), blocked the same way the run-it
   Drop dialog already was when the object's server is disconnected.
+- **Maintenance dialog**: Vacuum, Analyze, Cluster and Reindex, from the
+  tree's right-click menu — Vacuum/Analyze/Cluster/Reindex Table on tables,
+  Vacuum/Analyze/Reindex Database on databases, Reindex Index on indexes and
+  Reindex Schema on schemas — same generate-then-preview-then-run flow as the
+  DDL dialogs, always run against the target database's connection (there is
+  no server-wide maintenance-db variant). Options: FULL/FREEZE/ANALYZE/
+  VERBOSE for Vacuum, VERBOSE for Analyze, an optional target index plus
+  VERBOSE for Cluster, CONCURRENTLY/VERBOSE for Reindex
+  (`internal/web/maintenance.go`, `templates/partials/maint_modal.html`).
 - **Script generation**: SELECT / CREATE / INSERT / DELETE templates for tables;
   SELECT / CREATE / INSERT for views; SELECT for materialized views
   (`internal/web/script.go`).
@@ -155,8 +164,11 @@ that is missing, ordered by priority.
   CSV copy/export. The current result grid renders text only
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
 - **P2.2.** **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
-  **Maintenance dialog** (VACUUM, ANALYZE, REINDEX, CLUSTER); **Storage
-  Manager** for server-side backup files.
+  **Storage Manager** for server-side backup files. (The **Maintenance
+  dialog** — VACUUM, ANALYZE, REINDEX, CLUSTER — is done; see "What this app
+  already has" above. Both remaining pieces need `os/exec` support the app
+  has never had, plus Docker image changes to install the `pg_dump`/
+  `pg_restore` client binaries, which neither image has today.)
 - **P2.3.** **Query tool power features** — transaction control (BEGIN / COMMIT /
   ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
   text in `internal/web/handlers.go`), multiple result sets, execute a

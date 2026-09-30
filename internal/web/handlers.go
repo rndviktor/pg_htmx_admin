@@ -80,6 +80,10 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/ddl/{kind}/drop-script", s.handleDDLDropScript)
 		r.Get("/api/ddl/table/fk-ref-columns", s.handleDDLFKRefColumns)
 
+		r.Get("/api/maint/{op}/modal", s.handleMaintModal)
+		r.Post("/api/maint/{op}/preview", s.handleMaintPreview)
+		r.Post("/api/maint/{op}/run", s.handleMaintRun)
+
 		r.Get("/api/sessions", s.handleSessions)
 		r.Post("/api/sessions/{pid}/cancel", s.handleSessionCancel)
 		r.Delete("/api/sessions/{pid}", s.handleSessionTerminate)
