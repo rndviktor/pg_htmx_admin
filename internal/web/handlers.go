@@ -87,6 +87,9 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/backup/{op}/modal", s.handleBackupModal)
 		r.Post("/api/backup/{op}/preview", s.handleBackupPreview)
 		r.Post("/api/backup/{op}/run", s.handleBackupRun)
+		r.Get("/api/backup/jobs", s.handleJobList)
+		r.Get("/api/backup/jobs/{id}", s.handleJobStatus)
+		r.Post("/api/backup/jobs/{id}/cancel", s.handleJobCancel)
 
 		r.Get("/api/storage", s.handleStorageModal)
 		r.Post("/api/storage/upload", s.handleStorageUpload)

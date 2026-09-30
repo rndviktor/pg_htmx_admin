@@ -28,9 +28,14 @@
                 <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Backup file</label>
                 <select name="filename" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
                     {{ $sel := index .Values "filename" }}
-                    {{ range .Files }}<option value="{{ .Name }}"{{ if eq .Name $sel }} selected{{ end }}>{{ .Name }} ({{ .Size }})</option>{{ else }}<option value="">(no backup files - use Storage Manager)</option>{{ end }}
+                    {{ range .Files }}<option value="{{ .Name }}"{{ if eq .Name $sel }} selected{{ end }}>{{ .Name }}{{ if .IsDir }}/{{ end }} ({{ .Size }})</option>{{ else }}<option value="">(no backup files - use Storage Manager)</option>{{ end }}
                 </select>
-                <p class="text-xs text-gray-500 mt-1">Custom and tar archives only; plain .sql files need psql.</p>
+                <p class="text-xs text-gray-500 mt-1">.sql files are replayed with psql (only Single transaction and Exit on error apply); everything else uses pg_restore.</p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Parallel jobs (pg_restore)</label>
+                <input type="number" min="1" max="8" name="jobs" value="{{ index .Values "jobs" }}" placeholder="1"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
             </div>
             {{ else }}
             <div>
@@ -49,11 +54,17 @@
                         <option value="custom"{{ if eq $fmt "custom" }} selected{{ end }}>Custom (.dump)</option>
                         <option value="tar"{{ if eq $fmt "tar" }} selected{{ end }}>Tar (.tar)</option>
                         <option value="plain"{{ if eq $fmt "plain" }} selected{{ end }}>Plain SQL (.sql)</option>
+                        <option value="directory"{{ if eq $fmt "directory" }} selected{{ end }}>Directory</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Compression (custom)</label>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Compression (custom/dir)</label>
                     <input type="number" min="0" max="9" name="compress" value="{{ index .Values "compress" }}" placeholder="default"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Parallel jobs (dir)</label>
+                    <input type="number" min="1" max="8" name="jobs" value="{{ index .Values "jobs" }}" placeholder="1"
                            class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
                 </div>
                 <div>
@@ -119,14 +130,7 @@
                     <input type="checkbox" name="inserts" class="accent-blue-500"><span>Use INSERT commands</span>
                 </label>
                 {{ end }}
-                <label class="flex items-center space-x-2 text-sm text-gray-300">
-                    <input type="checkbox" name="verbose" class="accent-blue-500"><span>Verbose</span>
-                </label>
             </div>
-            {{ else }}
-            <label class="flex items-center space-x-2 text-sm text-gray-300">
-                <input type="checkbox" name="verbose" class="accent-blue-500"><span>Verbose</span>
-            </label>
             {{ end }}
 
             <div>

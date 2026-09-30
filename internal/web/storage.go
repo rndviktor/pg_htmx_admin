@@ -1,7 +1,10 @@
 package web
 
 import (
+	"archive/zip"
+	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
@@ -25,7 +28,7 @@ type storageData struct {
 }
 
 func (s *Server) renderStorage(w http.ResponseWriter, errMsg string) {
-	files, err := listBackupFiles(false)
+	files, err := listBackupFiles()
 	if err != nil {
 		log.Printf("Storage manager: list files: %v", err)
 		errMsg = err.Error()
@@ -44,8 +47,13 @@ func (s *Server) handleStorageDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if _, err := os.Stat(path); err != nil {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
 		http.NotFound(w, r)
+		return
+	}
+	if info.IsDir() {
+		serveDirZip(w, path)
 		return
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(filepath.Base(path)))
@@ -58,7 +66,14 @@ func (s *Server) handleStorageDelete(w http.ResponseWriter, r *http.Request) {
 		s.renderStorage(w, err.Error())
 		return
 	}
-	if err := os.Remove(path); err != nil {
+	info, err := os.Lstat(path)
+	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		err = errors.New("refusing to delete a symlink")
+	}
+	if err == nil {
+		err = os.RemoveAll(path) // a directory-format dump is a folder
+	}
+	if err != nil {
 		log.Printf("Storage manager: delete %s: %v", path, err)
 		s.renderStorage(w, "Could not delete the file.")
 		return
@@ -97,4 +112,47 @@ func (s *Server) handleStorageUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderStorage(w, "")
+}
+
+// serveDirZip streams a directory-format dump as an uncompressed zip (its
+// table files are already compressed by pg_dump).
+func serveDirZip(w http.ResponseWriter, dir string) {
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(filepath.Base(dir))+".zip")
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	base := filepath.Dir(dir)
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		hdr, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		hdr.Name, hdr.Method = filepath.ToSlash(rel), zip.Store
+		dst, err := zw.CreateHeader(hdr)
+		if err != nil {
+			return err
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		_, err = io.Copy(dst, src)
+		return err
+	})
+	if err != nil {
+		log.Printf("Storage manager: zip %s: %v", dir, err)
+	}
 }

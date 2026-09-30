@@ -140,21 +140,28 @@ that is missing, ordered by priority.
   VERBOSE for Vacuum, VERBOSE for Analyze, an optional target index plus
   VERBOSE for Cluster, CONCURRENTLY/VERBOSE for Reindex
   (`internal/web/maintenance.go`, `templates/partials/maint_modal.html`).
-- **Backup & Restore**: `pg_dump` (database, schema or table; custom/tar/plain
-  format, compression, encoding, schema-/data-only, clean/if-exists/create,
-  no-owner/no-privileges, role, INSERT mode, verbose), `pg_dumpall` for
-  globals (roles and/or tablespaces) and `pg_restore` (clean/create, content,
-  single-transaction, exit-on-error), from the tree's right-click
-  "Backup / Restore" submenu. Same generate-preview-run flow: the server builds
-  the argv (no shell, password via `PGPASSWORD`) and previews the command.
-  The **Storage Manager** lists, uploads, downloads and deletes the files in
-  the storage directory (`BACKUP_DIR`, default `./backups`; `/data/backups`
-  in the prod image). Runs synchronously (30 min cap), needs the PostgreSQL
-  client tools in the image — added to both Dockerfiles
-  (`internal/web/backup.go`, `internal/web/storage.go`,
-  `templates/partials/backup_modal.html`, `storage_modal.html`). Not covered:
-  directory format, restoring plain `.sql` files (needs `psql`), background
-  job progress.
+- **Backup & Restore**: `pg_dump` (database, schema or table; custom/tar/
+  plain/directory format, compression, parallel jobs for directory dumps,
+  encoding, schema-/data-only, clean/if-exists/create, no-owner/no-privileges,
+  role, INSERT mode), `pg_dumpall` for globals (roles and/or tablespaces) and
+  restore — `pg_restore` for custom/tar/directory archives (clean/create,
+  content, parallel jobs, single-transaction, exit-on-error) and `psql` for
+  plain `.sql` files (incl. globals dumps; single-transaction, exit-on-error).
+  Offered from the tree's right-click "Backup / Restore" submenu. Same
+  generate-preview-run flow: the server builds the argv (no shell, password
+  via `PGPASSWORD`) and previews the command.
+  Commands run as **background jobs** (`internal/web/jobs.go`): closing the
+  dialog doesn't stop them, the panel polls every second showing elapsed
+  time, bytes written and the `--verbose` log tail, jobs can be cancelled
+  (partial output is deleted) and are listed under "Background Jobs" (in
+  memory only, newest 50, lost on restart; 30 min cap per job).
+  The **Storage Manager** lists, uploads, downloads and deletes the backups in
+  the storage directory (`BACKUP_DIR`, default `./backups`); directory dumps
+  show as folders, download as a zip and delete recursively. Needs the
+  PostgreSQL 18 client tools, installed in both Dockerfiles
+  (`internal/web/backup.go`, `jobs.go`, `storage.go`,
+  `templates/partials/backup_*.html`, `storage_modal.html`). Not covered:
+  uploading directory dumps, restoring compressed (`.sql.gz`) scripts.
 - **Script generation**: SELECT / CREATE / INSERT / DELETE templates for tables;
   SELECT / CREATE / INSERT for views; SELECT for materialized views
   (`internal/web/script.go`).
@@ -179,8 +186,7 @@ that is missing, ordered by priority.
   CSV copy/export. The current result grid renders text only
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
 - ~~**P2.2.** **Backup & Restore**~~ — **done**; see "What this app already
-  has" above. Remaining gaps: directory format, `psql` restore of plain SQL
-  files, background jobs with progress.
+  has" above.
 - **P2.3.** **Query tool power features** — transaction control (BEGIN / COMMIT /
   ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
   text in `internal/web/handlers.go`), multiple result sets, execute a

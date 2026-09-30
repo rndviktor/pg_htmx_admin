@@ -13,11 +13,11 @@
             {{ range .Files }}
             <li class="flex items-center justify-between py-2 text-sm text-gray-300">
                 <span class="min-w-0">
-                    <span class="block font-mono truncate">{{ .Name }}</span>
+                    <span class="block font-mono truncate">{{ .Name }}{{ if .IsDir }}/{{ end }}</span>
                     <span class="text-xs text-gray-500">{{ .Size }} &middot; {{ .ModTime }}</span>
                 </span>
                 <span class="flex space-x-3 ml-3 shrink-0">
-                    <a href="/api/storage/files/{{ .Name }}" class="text-blue-400 hover:text-blue-300">Download</a>
+                    <a href="/api/storage/files/{{ .Name }}" class="text-blue-400 hover:text-blue-300">Download{{ if .IsDir }} (zip){{ end }}</a>
                     <button type="button" hx-delete="/api/storage/files/{{ .Name }}" hx-confirm="Delete {{ .Name }}?"
                             hx-target="#modal-container" hx-swap="innerHTML"
                             class="text-red-400 hover:text-red-300">Delete</button>

@@ -1,13 +1,11 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -22,18 +20,28 @@ import (
 )
 
 // Backup & Restore dialogs shell out to the PostgreSQL client tools
-// (pg_dump / pg_dumpall / pg_restore). Like the DDL and Maintenance dialogs
-// the client only posts form values: the server builds the argument list,
-// shows it as a preview, and runs it. Commands are executed without a shell
-// (exec.Command with an argv slice), every value that could start with "-"
-// is passed in --opt=value form, and the password travels in PGPASSWORD,
-// never on the command line. Files are read and written only inside the
-// storage directory (see backupDir); file names are validated, never paths.
+// (pg_dump / pg_dumpall / pg_restore / psql). Like the DDL and Maintenance
+// dialogs the client only posts form values: the server builds the argument
+// list, shows it as a preview, and runs it as a background job (jobs.go).
+// Commands are executed without a shell (exec.Command with an argv slice),
+// every value that could start with "-" is passed in --opt=value form, and the
+// password travels in PGPASSWORD, never on the command line. Files are read
+// and written only inside the storage directory (see backupDir); file names
+// are validated, never paths.
+
+// backupCmd is one fully built client-tool invocation. Out is the file or
+// directory a dump creates (removed again if the job fails or is cancelled);
+// it is empty for restores.
+type backupCmd struct {
+	Tool string
+	Args []string
+	Out  string
+}
 
 type backupOp struct {
 	Label string
-	Tool  string
-	Build func(c pgConn, v map[string]string) (args []string, outFile string, err error)
+	Tool  string // default tool, shown in the modal before a command is built
+	Build func(c pgConn, v map[string]string) (backupCmd, error)
 }
 
 var backupOps = map[string]backupOp{
@@ -42,18 +50,22 @@ var backupOps = map[string]backupOp{
 	"restore":        {Label: "Restore", Tool: "pg_restore", Build: buildPgRestore},
 }
 
-// backupTimeout bounds one dump/restore; large databases need far longer than
-// a DDL statement, but the request must not hang forever.
+// backupTimeout bounds one background dump/restore job.
 const backupTimeout = 30 * time.Minute
 
-// maxToolOutput is how much of a tool's combined output is shown to the user.
+// maxToolOutput is how much of a job's combined output is kept and shown.
 const maxToolOutput = 16 << 10
+
+// maxParallelJobs caps --jobs for directory dumps and parallel restores.
+const maxParallelJobs = 8
 
 // storageNameRe is the set of file names the Storage Manager will touch: a
 // plain base name, no separators, no leading dot or dash.
 var storageNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$`)
 
 var encodingRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
+
+var unsafeNameRe = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
 
 // pgConn carries the connection settings handed to a client tool.
 type pgConn struct {
@@ -139,9 +151,24 @@ func backupFileName(name, ext string) (string, error) {
 }
 
 var backupFormats = map[string]struct{ Flag, Ext string }{
-	"custom": {"custom", ".dump"},
-	"tar":    {"tar", ".tar"},
-	"plain":  {"plain", ".sql"},
+	"custom":    {"custom", ".dump"},
+	"tar":       {"tar", ".tar"},
+	"plain":     {"plain", ".sql"},
+	"directory": {"directory", ""},
+}
+
+// jobsFlag validates the optional "parallel jobs" field and returns the
+// --jobs flag, or "" when unset.
+func jobsFlag(v map[string]string) (string, error) {
+	j := strings.TrimSpace(v["jobs"])
+	if j == "" {
+		return "", nil
+	}
+	n, err := strconv.Atoi(j)
+	if err != nil || n < 1 || n > maxParallelJobs {
+		return "", formErr("Parallel jobs must be between 1 and " + strconv.Itoa(maxParallelJobs) + ".")
+	}
+	return "--jobs=" + j, nil
 }
 
 // contentFlag maps the all/data/schema radio to its pg_dump/pg_restore flag.
@@ -155,11 +182,13 @@ func contentFlag(v map[string]string) string {
 	return ""
 }
 
-// commonFlags appends the checkbox options pg_dump and pg_restore share.
+// commonFlags appends the options pg_dump and pg_restore share. --verbose is
+// always on: its log lines are the only progress the tools report.
 func commonFlags(args []string, v map[string]string) []string {
+	args = append(args, "--verbose")
 	for _, o := range [][2]string{
 		{"no_owner", "--no-owner"}, {"no_privileges", "--no-privileges"},
-		{"clean", "--clean"}, {"create", "--create"}, {"verbose", "--verbose"},
+		{"clean", "--clean"}, {"create", "--create"},
 	} {
 		if v[o[0]] == "on" {
 			args = append(args, o[1])
@@ -186,36 +215,43 @@ func validateCleanOpts(v map[string]string) error {
 	return nil
 }
 
-func buildPgDump(c pgConn, v map[string]string) ([]string, string, error) {
+func buildPgDump(c pgConn, v map[string]string) (backupCmd, error) {
 	f, ok := backupFormats[v["format"]]
 	if !ok {
-		return nil, "", formErr("Unsupported format.")
+		return backupCmd{}, formErr("Unsupported format.")
 	}
 	if c.DB == "" {
-		return nil, "", formErr("Database is required.")
+		return backupCmd{}, formErr("Database is required.")
 	}
 	if err := validateCleanOpts(v); err != nil {
-		return nil, "", err
+		return backupCmd{}, err
 	}
 	name, err := backupFileName(v["filename"], f.Ext)
 	if err != nil {
-		return nil, "", err
+		return backupCmd{}, err
 	}
 	path, err := storagePath(name)
 	if err != nil {
-		return nil, "", err
+		return backupCmd{}, err
 	}
 
 	args := append(c.args(), "--format="+f.Flag, "--file="+path)
-	if z := v["compress"]; z != "" && v["format"] == "custom" {
+	if z := v["compress"]; z != "" && (v["format"] == "custom" || v["format"] == "directory") {
 		if n, err := strconv.Atoi(z); err != nil || n < 0 || n > 9 {
-			return nil, "", formErr("Compression level must be 0-9.")
+			return backupCmd{}, formErr("Compression level must be 0-9.")
 		}
 		args = append(args, "--compress="+z)
 	}
+	jf, err := jobsFlag(v)
+	if err != nil {
+		return backupCmd{}, err
+	}
+	if jf != "" && v["format"] == "directory" {
+		args = append(args, jf)
+	}
 	if enc := strings.TrimSpace(v["encoding"]); enc != "" {
 		if !encodingRe.MatchString(enc) {
-			return nil, "", formErr("Invalid encoding.")
+			return backupCmd{}, formErr("Invalid encoding.")
 		}
 		args = append(args, "--encoding="+enc)
 	}
@@ -229,19 +265,19 @@ func buildPgDump(c pgConn, v map[string]string) ([]string, string, error) {
 	case v["schema"] != "":
 		args = append(args, "--schema="+quoteIdent(v["schema"]))
 	}
-	return append(args, "--dbname="+c.DB), path, nil
+	return backupCmd{Tool: "pg_dump", Args: append(args, "--dbname="+c.DB), Out: path}, nil
 }
 
-func buildPgDumpAll(c pgConn, v map[string]string) ([]string, string, error) {
+func buildPgDumpAll(c pgConn, v map[string]string) (backupCmd, error) {
 	name, err := backupFileName(v["filename"], ".sql")
 	if err != nil {
-		return nil, "", err
+		return backupCmd{}, err
 	}
 	path, err := storagePath(name)
 	if err != nil {
-		return nil, "", err
+		return backupCmd{}, err
 	}
-	args := append(c.args(), "--file="+path)
+	args := append(c.args(), "--file="+path, "--verbose")
 	switch v["scope"] {
 	case "roles":
 		args = append(args, "--roles-only")
@@ -250,28 +286,42 @@ func buildPgDumpAll(c pgConn, v map[string]string) ([]string, string, error) {
 	default:
 		args = append(args, "--globals-only")
 	}
-	if v["verbose"] == "on" {
-		args = append(args, "--verbose")
-	}
-	return args, path, nil
+	return backupCmd{Tool: "pg_dumpall", Args: args, Out: path}, nil
 }
 
-func buildPgRestore(c pgConn, v map[string]string) ([]string, string, error) {
+// buildPgRestore restores one stored backup. Plain .sql files go through psql
+// (pg_restore cannot read them); custom/tar archives and directory dumps go
+// through pg_restore.
+func buildPgRestore(c pgConn, v map[string]string) (backupCmd, error) {
 	if c.DB == "" || strings.ContainsAny(c.DB, "=/") {
-		return nil, "", formErr("Invalid database name.")
+		return backupCmd{}, formErr("Invalid database name.")
 	}
 	if err := validateCleanOpts(v); err != nil {
-		return nil, "", err
+		return backupCmd{}, err
 	}
 	path, err := storagePath(v["filename"])
 	if err != nil {
-		return nil, "", err
+		return backupCmd{}, err
 	}
-	if _, err := os.Stat(path); err != nil {
-		return nil, "", formErr("Backup file not found in the storage directory.")
+	info, err := os.Stat(path)
+	if err != nil {
+		return backupCmd{}, formErr("Backup file not found in the storage directory.")
 	}
-	args := c.args()
-	args = commonFlags(args, v)
+	if !info.IsDir() && strings.HasSuffix(path, ".sql") {
+		return buildPsqlRestore(c, v, path), nil
+	}
+
+	args := commonFlags(c.args(), v)
+	jf, err := jobsFlag(v)
+	if err != nil {
+		return backupCmd{}, err
+	}
+	if jf != "" {
+		if v["single_transaction"] == "on" {
+			return backupCmd{}, formErr("Parallel jobs cannot be combined with a single transaction.")
+		}
+		args = append(args, jf)
+	}
 	for _, o := range [][2]string{
 		{"single_transaction", "--single-transaction"}, {"exit_on_error", "--exit-on-error"},
 	} {
@@ -279,7 +329,20 @@ func buildPgRestore(c pgConn, v map[string]string) ([]string, string, error) {
 			args = append(args, o[1])
 		}
 	}
-	return append(args, "--dbname="+c.DB, path), "", nil
+	return backupCmd{Tool: "pg_restore", Args: append(args, "--dbname="+c.DB, path)}, nil
+}
+
+// buildPsqlRestore replays a plain SQL script. Only "exit on error" and
+// "single transaction" apply; the dump-time options are baked into the script.
+func buildPsqlRestore(c pgConn, v map[string]string, path string) backupCmd {
+	args := append(c.args(), "--no-psqlrc", "--file="+path)
+	if v["exit_on_error"] == "on" {
+		args = append(args, "--set=ON_ERROR_STOP=1")
+	}
+	if v["single_transaction"] == "on" {
+		args = append(args, "--single-transaction")
+	}
+	return backupCmd{Tool: "psql", Args: append(args, "--dbname="+c.DB)}
 }
 
 // toolPreview renders the command as shown in the preview panel.
@@ -287,29 +350,12 @@ func toolPreview(tool string, args []string) string {
 	return strings.TrimSpace(tool + " " + strings.Join(args, " "))
 }
 
-// runTool executes a client tool and returns its (truncated) combined output.
-func runTool(ctx context.Context, tool string, args, environ []string) (string, error) {
-	bin, err := exec.LookPath(tool)
-	if err != nil {
-		return "", fmt.Errorf("%s was not found on PATH; install the PostgreSQL client tools", tool)
-	}
-	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = environ
-	cmd.Stdout, cmd.Stderr = &out, &out
-	err = cmd.Run()
-	text := out.String()
-	if len(text) > maxToolOutput {
-		text = "...\n" + text[len(text)-maxToolOutput:]
-	}
-	return strings.TrimSpace(text), err
-}
-
 // backupFile is one row of the Storage Manager listing.
 type backupFile struct {
 	Name    string
 	Size    string
 	ModTime string
+	IsDir   bool // a directory-format dump
 }
 
 func humanSize(n int64) string {
@@ -325,9 +371,9 @@ func humanSize(n int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGT"[exp])
 }
 
-// listBackupFiles lists regular files in the storage directory, newest first.
-// With skipPlain set, plain-SQL dumps are omitted (pg_restore can't read them).
-func listBackupFiles(skipPlain bool) ([]backupFile, error) {
+// listBackupFiles lists the stored backups, newest first: regular files plus
+// directory-format dumps (subdirectories holding a toc.dat).
+func listBackupFiles() ([]backupFile, error) {
 	dir, err := backupDir()
 	if err != nil {
 		return nil, err
@@ -343,16 +389,19 @@ func listBackupFiles(skipPlain bool) ([]backupFile, error) {
 	var items []item
 	for _, e := range entries {
 		info, err := e.Info()
-		if err != nil || !info.Mode().IsRegular() || !storageNameRe.MatchString(e.Name()) {
+		if err != nil || !storageNameRe.MatchString(e.Name()) {
 			continue
 		}
-		if skipPlain && strings.HasSuffix(e.Name(), ".sql") {
+		f := backupFile{Name: e.Name(), ModTime: info.ModTime().Format("2006-01-02 15:04")}
+		switch {
+		case info.Mode().IsRegular():
+			f.Size = humanSize(info.Size())
+		case info.IsDir() && isDirDump(filepath.Join(dir, e.Name())):
+			f.IsDir, f.Size = true, humanSize(dirSize(filepath.Join(dir, e.Name())))
+		default:
 			continue
 		}
-		items = append(items, item{
-			f:   backupFile{Name: e.Name(), Size: humanSize(info.Size()), ModTime: info.ModTime().Format("2006-01-02 15:04")},
-			mod: info.ModTime(),
-		})
+		items = append(items, item{f: f, mod: info.ModTime()})
 	}
 	for i := 1; i < len(items); i++ { // insertion sort, newest first; lists are small
 		for j := i; j > 0 && items[j].mod.After(items[j-1].mod); j-- {
@@ -364,6 +413,26 @@ func listBackupFiles(skipPlain bool) ([]backupFile, error) {
 		files[i] = it.f
 	}
 	return files, nil
+}
+
+// isDirDump reports whether path is a pg_dump directory-format archive.
+func isDirDump(path string) bool {
+	_, err := os.Stat(filepath.Join(path, "toc.dat"))
+	return err == nil
+}
+
+// dirSize sums the size of the regular files under path (or the file itself).
+func dirSize(path string) int64 {
+	var total int64
+	filepath.WalkDir(path, func(_ string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	})
+	return total
 }
 
 // backupModalData is the view model for the shared backup/restore partial.
@@ -378,7 +447,6 @@ type backupModalData struct {
 	Values   map[string]string
 	Files    []backupFile
 	Error    string
-	Output   string
 }
 
 func (s *Server) renderBackupModal(w http.ResponseWriter, m backupModalData) {
@@ -389,7 +457,7 @@ func (s *Server) renderBackupModal(w http.ResponseWriter, m backupModalData) {
 		m.OpLabel, m.Tool = op.Label, op.Tool
 	}
 	if m.Op == "restore" {
-		files, err := listBackupFiles(true)
+		files, err := listBackupFiles()
 		if err != nil {
 			log.Printf("Backup modal: list files: %v", err)
 		}
@@ -409,8 +477,7 @@ func defaultBackupName(op, db, schema, table string) string {
 			base = schema
 		}
 	}
-	base = regexp.MustCompile(`[^A-Za-z0-9_.-]+`).ReplaceAllString(base, "_")
-	return base + "_" + time.Now().Format("20060102_150405")
+	return unsafeNameRe.ReplaceAllString(base, "_") + "_" + time.Now().Format("20060102_150405")
 }
 
 func lookupBackupOp(w http.ResponseWriter, r *http.Request) (string, backupOp, bool) {
@@ -461,9 +528,9 @@ func (s *Server) handleBackupPreview(w http.ResponseWriter, r *http.Request) {
 	contents := ""
 	c, v, err := s.backupRequest(r)
 	if err == nil {
-		var args []string
-		if args, _, err = o.Build(c, v); err == nil {
-			contents = toolPreview(o.Tool, args)
+		var cmd backupCmd
+		if cmd, err = o.Build(c, v); err == nil {
+			contents = toolPreview(cmd.Tool, cmd.Args)
 		}
 	}
 	if err != nil {
@@ -472,6 +539,8 @@ func (s *Server) handleBackupPreview(w http.ResponseWriter, r *http.Request) {
 	RenderPartial(w, "ddl_preview.html", map[string]any{"Contents": contents})
 }
 
+// handleBackupRun validates the request, starts the command as a background
+// job (see jobs.go) and answers with the job's progress panel.
 func (s *Server) handleBackupRun(w http.ResponseWriter, r *http.Request) {
 	op, o, ok := lookupBackupOp(w, r)
 	if !ok {
@@ -479,49 +548,52 @@ func (s *Server) handleBackupRun(w http.ResponseWriter, r *http.Request) {
 	}
 	c, v, err := s.backupRequest(r)
 	sid, _ := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
-	rerender := func(errMsg, output string) {
+	rerender := func(errMsg string) {
 		s.renderBackupModal(w, backupModalData{
 			Op: op, ServerID: sid, DB: r.FormValue("db"), Schema: r.FormValue("schema"),
-			Table: r.FormValue("table"), Values: v, Error: errMsg, Output: output,
+			Table: r.FormValue("table"), Values: v, Error: errMsg,
 		})
 	}
 	if err != nil {
-		rerender(err.Error(), "")
+		rerender(err.Error())
 		return
 	}
 	if s.isDisconnected(sid) {
-		rerender("Server is disconnected. Reconnect it first.", "")
+		rerender("Server is disconnected. Reconnect it first.")
 		return
 	}
-	args, outFile, err := o.Build(c, v)
+	cmd, err := o.Build(c, v)
 	if err != nil {
-		rerender(err.Error(), "")
+		rerender(err.Error())
 		return
 	}
-	if outFile != "" {
-		if _, statErr := os.Stat(outFile); statErr == nil {
-			rerender("A file with that name already exists in the storage directory.", "")
+	if cmd.Out != "" {
+		if _, statErr := os.Lstat(cmd.Out); statErr == nil {
+			rerender("A file with that name already exists in the storage directory.")
 			return
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), backupTimeout)
-	defer cancel()
-	output, err := runTool(ctx, o.Tool, args, c.env())
+	j, err := startJob(o.Label+" "+jobTarget(op, c.DB, v), cmd, c.env())
 	if err != nil {
-		log.Printf("Backup %s failed: %v", op, err)
-		if outFile != "" {
-			os.Remove(outFile) // never leave a truncated dump behind
-		}
-		rerender(o.Tool+" failed: "+err.Error(), output)
+		log.Printf("Backup %s: start failed: %v", op, err)
+		rerender(err.Error())
 		return
 	}
-	file := v["filename"]
-	if outFile != "" {
-		file = filepath.Base(outFile)
+	RenderPartial(w, "backup_job.html", j.view())
+}
+
+// jobTarget names what a job acts on, for the jobs list.
+func jobTarget(op, dbName string, v map[string]string) string {
+	switch {
+	case op == "backup-globals":
+		return "(cluster globals)"
+	case op == "restore":
+		return v["filename"] + " -> " + dbName
+	case v["table"] != "":
+		return dbName + "." + v["schema"] + "." + v["table"]
+	case v["schema"] != "":
+		return dbName + "." + v["schema"]
 	}
-	RenderPartial(w, "backup_result.html", map[string]any{
-		"Label": o.Label, "File": file, "Output": output,
-		"Restore": op == "restore", "DB": c.DB,
-	})
+	return dbName
 }

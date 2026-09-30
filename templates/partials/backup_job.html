@@ -1,0 +1,31 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()"
+     {{ if .Running }}hx-get="/api/backup/jobs/{{ .ID }}" hx-trigger="every 1s" hx-target="#modal-container" hx-swap="innerHTML"{{ end }}>
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl modal-panel w-full max-w-md p-6">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white truncate">{{ .Label }}</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        <div class="flex items-center space-x-2 text-sm mb-3">
+            {{ if .Running }}<span class="text-blue-400">Running&hellip;</span>
+            {{ else if eq .Status "done" }}<span class="text-green-400">&#10003; Completed</span>
+            {{ else if eq .Status "cancelled" }}<span class="text-yellow-400">Cancelled</span>
+            {{ else }}<span class="text-red-400">Failed</span>{{ end }}
+            <span class="text-gray-500">&middot; {{ .Elapsed }}{{ if .Size }} &middot; {{ .Size }} written{{ end }}</span>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+        <pre class="text-xs font-mono text-gray-400 bg-gray-900 border border-gray-700 rounded p-2 mb-3 whitespace-pre-wrap break-all">{{ .Command }}</pre>
+        {{ if .Output }}<pre class="text-xs font-mono text-gray-300 bg-gray-900 border border-gray-700 rounded p-2 mb-3 max-h-60 overflow-auto whitespace-pre-wrap">{{ .Output }}</pre>{{ end }}
+
+        <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+            {{ if .Running }}
+            <button type="button" hx-post="/api/backup/jobs/{{ .ID }}/cancel" hx-target="#modal-container" hx-swap="innerHTML"
+                    class="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded text-sm">Cancel job</button>
+            {{ end }}
+            <button type="button" onclick="closeDDL()"
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">{{ if .Running }}Run in background{{ else }}Close{{ end }}</button>
+        </div>
+    </div>
+</div>

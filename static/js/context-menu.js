@@ -338,13 +338,18 @@ function initContextMenu() {
         const maintSubmenu = (entries) => submenu("Maintenance", entries,
             (entry) => openMaintDialog(entry[1], nodeURL, entry[2]));
         const backupSubmenu = (entries) => submenu("Backup / Restore", entries,
-            (entry) => entry[1] === "storage" ? openStorageManager() : openBackupDialog(entry[1], nodeURL));
+            (entry) => {
+                if (entry[1] === "storage") openStorageManager();
+                else if (entry[1] === "jobs") openBackupJobs();
+                else openBackupDialog(entry[1], nodeURL);
+            });
 
         if (currentMenuKind === "server") {
             menu.appendChild(divider());
             menu.appendChild(backupSubmenu([
                 ["Backup Globals...", "backup-globals"],
                 ["Storage Manager", "storage"],
+                ["Background Jobs", "jobs"],
             ]));
         } else if (currentMenuKind === "schema") {
             menu.appendChild(divider());

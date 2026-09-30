@@ -113,6 +113,7 @@
     };
 
     window.openStorageManager = function () { openModal("/api/storage"); };
+    window.openBackupJobs = function () { openModal("/api/backup/jobs"); };
 
     // "DROP Script": fetches the DROP SQL for any droppable object kind and
     // opens it in a read-only script tab, without running it (unlike
