@@ -318,25 +318,42 @@ function initContextMenu() {
 
         // Maintenance: Vacuum/Analyze/Cluster/Reindex, offered on the node
         // kinds Postgres actually supports them against.
-        function maintSubmenu(entries) {
+        function submenu(label, entries, onPick) {
             const row = document.createElement("div");
             row.className = "relative group";
             const trigger = document.createElement("button");
             trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
-            trigger.innerHTML = '<span>Maintenance</span><span class="text-xs text-gray-500">▸</span>';
+            trigger.innerHTML = '<span>' + label + '</span><span class="text-xs text-gray-500">▸</span>';
             const sub = document.createElement("div");
             sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[10rem]";
             entries.forEach((entry) => {
                 const item = menuItem(entry[0], false);
-                item.addEventListener("click", () => openMaintDialog(entry[1], nodeURL, entry[2]));
+                item.addEventListener("click", () => onPick(entry));
                 sub.appendChild(item);
             });
             row.append(trigger, sub);
             return row;
         }
 
+        const maintSubmenu = (entries) => submenu("Maintenance", entries,
+            (entry) => openMaintDialog(entry[1], nodeURL, entry[2]));
+        const backupSubmenu = (entries) => submenu("Backup / Restore", entries,
+            (entry) => entry[1] === "storage" ? openStorageManager() : openBackupDialog(entry[1], nodeURL));
+
+        if (currentMenuKind === "server") {
+            menu.appendChild(divider());
+            menu.appendChild(backupSubmenu([
+                ["Backup Globals...", "backup-globals"],
+                ["Storage Manager", "storage"],
+            ]));
+        } else if (currentMenuKind === "schema") {
+            menu.appendChild(divider());
+            menu.appendChild(backupSubmenu([["Backup...", "backup"]]));
+        }
+
         if (currentMenuKind === "table") {
             menu.appendChild(divider());
+            menu.appendChild(backupSubmenu([["Backup...", "backup"]]));
             menu.appendChild(maintSubmenu([
                 ["Vacuum", "vacuum", { target: "table" }],
                 ["Analyze", "analyze", { target: "table" }],
@@ -345,6 +362,10 @@ function initContextMenu() {
             ]));
         } else if (currentMenuKind === "database") {
             menu.appendChild(divider());
+            menu.appendChild(backupSubmenu([
+                ["Backup...", "backup"],
+                ["Restore...", "restore"],
+            ]));
             menu.appendChild(maintSubmenu([
                 ["Vacuum", "vacuum", { target: "database" }],
                 ["Analyze", "analyze", { target: "database" }],

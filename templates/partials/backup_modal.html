@@ -1,0 +1,149 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl modal-panel w-full max-w-md p-6 max-h-screen overflow-y-auto">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">{{ .OpLabel }}</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+        {{ if .Output }}<pre class="text-xs font-mono text-gray-300 bg-gray-900 border border-gray-700 rounded p-2 mb-3 max-h-40 overflow-auto whitespace-pre-wrap">{{ .Output }}</pre>{{ end }}
+
+        <form hx-post="/api/backup/{{ .Op }}/run" hx-target="#modal-container" hx-swap="innerHTML"
+              hx-disabled-elt="button[type='submit']" class="space-y-4">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="db" value="{{ .DB }}">
+            <input type="hidden" name="schema" value="{{ .Schema }}">
+            <input type="hidden" name="table" value="{{ .Table }}">
+
+            <p class="text-sm text-gray-300">
+                {{ if eq .Op "backup-globals" }}Cluster-wide roles and tablespaces
+                {{ else if .Table }}<span class="font-mono">{{ .Schema }}.{{ .Table }}</span>
+                {{ else if .Schema }}<span class="font-mono">{{ .Schema }}</span> (schema)
+                {{ else }}<span class="font-mono">{{ .DB }}</span>{{ end }}
+            </p>
+
+            {{ if eq .Op "restore" }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Backup file</label>
+                <select name="filename" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    {{ $sel := index .Values "filename" }}
+                    {{ range .Files }}<option value="{{ .Name }}"{{ if eq .Name $sel }} selected{{ end }}>{{ .Name }} ({{ .Size }})</option>{{ else }}<option value="">(no backup files - use Storage Manager)</option>{{ end }}
+                </select>
+                <p class="text-xs text-gray-500 mt-1">Custom and tar archives only; plain .sql files need psql.</p>
+            </div>
+            {{ else }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">File name</label>
+                <input type="text" name="filename" value="{{ index .Values "filename" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono">
+            </div>
+            {{ end }}
+
+            {{ if eq .Op "backup" }}
+            {{ $fmt := index .Values "format" }}
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Format</label>
+                    <select name="format" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="custom"{{ if eq $fmt "custom" }} selected{{ end }}>Custom (.dump)</option>
+                        <option value="tar"{{ if eq $fmt "tar" }} selected{{ end }}>Tar (.tar)</option>
+                        <option value="plain"{{ if eq $fmt "plain" }} selected{{ end }}>Plain SQL (.sql)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Compression (custom)</label>
+                    <input type="number" min="0" max="9" name="compress" value="{{ index .Values "compress" }}" placeholder="default"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Encoding</label>
+                    <input type="text" name="encoding" value="{{ index .Values "encoding" }}" placeholder="default"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+            </div>
+            {{ else if eq .Op "backup-globals" }}
+            {{ $scope := index .Values "scope" }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Scope</label>
+                <select name="scope" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    <option value="globals"{{ if eq $scope "globals" }} selected{{ end }}>Roles and tablespaces</option>
+                    <option value="roles"{{ if eq $scope "roles" }} selected{{ end }}>Roles only</option>
+                    <option value="tablespaces"{{ if eq $scope "tablespaces" }} selected{{ end }}>Tablespaces only</option>
+                </select>
+            </div>
+            {{ end }}
+
+            {{ if ne .Op "backup-globals" }}
+            {{ $content := index .Values "content" }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Content</label>
+                <select name="content" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    <option value="all"{{ if eq $content "all" }} selected{{ end }}>Schema and data</option>
+                    <option value="schema"{{ if eq $content "schema" }} selected{{ end }}>Schema only</option>
+                    <option value="data"{{ if eq $content "data" }} selected{{ end }}>Data only</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Role name (optional)</label>
+                <input type="text" name="role" value="{{ index .Values "role" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="no_owner" class="accent-blue-500"><span>No owner</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="no_privileges" class="accent-blue-500"><span>No privileges</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="clean" class="accent-blue-500" onchange="const e = this.form.if_exists; e.disabled = !this.checked; if (!this.checked) e.checked = false"><span>Clean</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="if_exists" class="accent-blue-500" disabled><span>Use IF EXISTS</span>
+                </label>
+                {{ if or (eq .Op "restore") (not .Schema) }}
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="create" class="accent-blue-500"><span>Create database</span>
+                </label>
+                {{ end }}
+                {{ if eq .Op "restore" }}
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="single_transaction" class="accent-blue-500"><span>Single transaction</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="exit_on_error" class="accent-blue-500"><span>Exit on error</span>
+                </label>
+                {{ else }}
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="inserts" class="accent-blue-500"><span>Use INSERT commands</span>
+                </label>
+                {{ end }}
+                <label class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="verbose" class="accent-blue-500"><span>Verbose</span>
+                </label>
+            </div>
+            {{ else }}
+            <label class="flex items-center space-x-2 text-sm text-gray-300">
+                <input type="checkbox" name="verbose" class="accent-blue-500"><span>Verbose</span>
+            </label>
+            {{ end }}
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Command Preview</label>
+                <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[3rem] max-h-40 overflow-auto">
+                    <pre class="text-xs font-mono text-gray-300 whitespace-pre-wrap break-all">{{ .Tool }} ...</pre>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button type="button" onclick="closeDDL()"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
+                <button type="button" hx-post="/api/backup/{{ .Op }}/preview" hx-include="closest form"
+                        hx-target="#ddl-preview" hx-swap="innerHTML"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Update Command</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">{{ .OpLabel }}</button>
+            </div>
+        </form>
+    </div>
+</div>

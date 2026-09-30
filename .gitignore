@@ -2,3 +2,4 @@
 *.db
 .env
 node_modules/
+backups/

@@ -84,6 +84,15 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/maint/{op}/preview", s.handleMaintPreview)
 		r.Post("/api/maint/{op}/run", s.handleMaintRun)
 
+		r.Get("/api/backup/{op}/modal", s.handleBackupModal)
+		r.Post("/api/backup/{op}/preview", s.handleBackupPreview)
+		r.Post("/api/backup/{op}/run", s.handleBackupRun)
+
+		r.Get("/api/storage", s.handleStorageModal)
+		r.Post("/api/storage/upload", s.handleStorageUpload)
+		r.Get("/api/storage/files/{name}", s.handleStorageDownload)
+		r.Delete("/api/storage/files/{name}", s.handleStorageDelete)
+
 		r.Get("/api/sessions", s.handleSessions)
 		r.Post("/api/sessions/{pid}/cancel", s.handleSessionCancel)
 		r.Delete("/api/sessions/{pid}", s.handleSessionTerminate)

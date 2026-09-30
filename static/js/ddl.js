@@ -99,6 +99,21 @@
         openModal("/api/maint/" + op + "/modal?" + qs.toString());
     };
 
+    // Backup & Restore dialogs (pg_dump / pg_dumpall / pg_restore) take the
+    // node's server/db/schema/table context, like the maintenance dialogs.
+    window.openBackupDialog = function (op, nodeURL) {
+        const ctx = parseObjectContext(nodeURL);
+        const qs = new URLSearchParams();
+        if (ctx.serverID) qs.set("server_id", ctx.serverID);
+        if (ctx.dbName) qs.set("db", ctx.dbName);
+        if (ctx.schema) qs.set("schema", ctx.schema);
+        if (ctx.table) qs.set("table", ctx.table);
+        if (!qs.get("server_id")) return;
+        openModal("/api/backup/" + op + "/modal?" + qs.toString());
+    };
+
+    window.openStorageManager = function () { openModal("/api/storage"); };
+
     // "DROP Script": fetches the DROP SQL for any droppable object kind and
     // opens it in a read-only script tab, without running it (unlike
     // openDropDDLDialog, which opens the preview-then-run modal).

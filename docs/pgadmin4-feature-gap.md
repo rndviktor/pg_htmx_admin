@@ -140,6 +140,21 @@ that is missing, ordered by priority.
   VERBOSE for Vacuum, VERBOSE for Analyze, an optional target index plus
   VERBOSE for Cluster, CONCURRENTLY/VERBOSE for Reindex
   (`internal/web/maintenance.go`, `templates/partials/maint_modal.html`).
+- **Backup & Restore**: `pg_dump` (database, schema or table; custom/tar/plain
+  format, compression, encoding, schema-/data-only, clean/if-exists/create,
+  no-owner/no-privileges, role, INSERT mode, verbose), `pg_dumpall` for
+  globals (roles and/or tablespaces) and `pg_restore` (clean/create, content,
+  single-transaction, exit-on-error), from the tree's right-click
+  "Backup / Restore" submenu. Same generate-preview-run flow: the server builds
+  the argv (no shell, password via `PGPASSWORD`) and previews the command.
+  The **Storage Manager** lists, uploads, downloads and deletes the files in
+  the storage directory (`BACKUP_DIR`, default `./backups`; `/data/backups`
+  in the prod image). Runs synchronously (30 min cap), needs the PostgreSQL
+  client tools in the image — added to both Dockerfiles
+  (`internal/web/backup.go`, `internal/web/storage.go`,
+  `templates/partials/backup_modal.html`, `storage_modal.html`). Not covered:
+  directory format, restoring plain `.sql` files (needs `psql`), background
+  job progress.
 - **Script generation**: SELECT / CREATE / INSERT / DELETE templates for tables;
   SELECT / CREATE / INSERT for views; SELECT for materialized views
   (`internal/web/script.go`).
@@ -163,12 +178,9 @@ that is missing, ordered by priority.
   insert/update/delete, in-cell editing, sorting, filtering, pagination and
   CSV copy/export. The current result grid renders text only
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
-- **P2.2.** **Backup & Restore** — pg_dump / pg_dumpall / pg_restore dialogs;
-  **Storage Manager** for server-side backup files. (The **Maintenance
-  dialog** — VACUUM, ANALYZE, REINDEX, CLUSTER — is done; see "What this app
-  already has" above. Both remaining pieces need `os/exec` support the app
-  has never had, plus Docker image changes to install the `pg_dump`/
-  `pg_restore` client binaries, which neither image has today.)
+- ~~**P2.2.** **Backup & Restore**~~ — **done**; see "What this app already
+  has" above. Remaining gaps: directory format, `psql` restore of plain SQL
+  files, background jobs with progress.
 - **P2.3.** **Query tool power features** — transaction control (BEGIN / COMMIT /
   ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
   text in `internal/web/handlers.go`), multiple result sets, execute a

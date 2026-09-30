@@ -6,7 +6,7 @@
 # binaries (esbuild) and modules survive the bind mount.
 FROM golang:1.27.0-alpine
 
-RUN apk add --no-cache git ca-certificates nodejs npm
+RUN apk add --no-cache git ca-certificates nodejs npm postgresql18-client
 
 # Air: Go live-reload tool — watches files, runs pre_cmd, rebuilds & restarts.
 RUN go install github.com/air-verse/air@latest

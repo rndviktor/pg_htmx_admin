@@ -1,0 +1,37 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl modal-panel w-full max-w-md p-6 max-h-screen overflow-y-auto">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">Storage Manager</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+        <p class="text-xs text-gray-500 mb-3 font-mono break-all">{{ .Dir }}</p>
+
+        <ul class="divide-y divide-gray-700 mb-4 max-h-60 overflow-auto">
+            {{ range .Files }}
+            <li class="flex items-center justify-between py-2 text-sm text-gray-300">
+                <span class="min-w-0">
+                    <span class="block font-mono truncate">{{ .Name }}</span>
+                    <span class="text-xs text-gray-500">{{ .Size }} &middot; {{ .ModTime }}</span>
+                </span>
+                <span class="flex space-x-3 ml-3 shrink-0">
+                    <a href="/api/storage/files/{{ .Name }}" class="text-blue-400 hover:text-blue-300">Download</a>
+                    <button type="button" hx-delete="/api/storage/files/{{ .Name }}" hx-confirm="Delete {{ .Name }}?"
+                            hx-target="#modal-container" hx-swap="innerHTML"
+                            class="text-red-400 hover:text-red-300">Delete</button>
+                </span>
+            </li>
+            {{ else }}
+            <li class="py-2 text-sm text-gray-500">No files yet.</li>
+            {{ end }}
+        </ul>
+
+        <form hx-post="/api/storage/upload" hx-encoding="multipart/form-data" hx-target="#modal-container"
+              hx-swap="innerHTML" hx-disabled-elt="button[type='submit']" class="flex items-center space-x-2">
+            <input type="file" name="file" class="flex-1 min-w-0 text-sm text-gray-300">
+            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">Upload</button>
+        </form>
+    </div>
+</div>

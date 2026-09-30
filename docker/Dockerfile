@@ -20,7 +20,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # The application creates its SQLite metadata DB (pgadmin4.db) in the working
 # directory, so run it from a directory the nonroot user owns.
-FROM gcr.io/distroless/static-debian12 AS runner
+# Alpine (not distroless) so the PostgreSQL client tools used by Backup &
+# Restore (pg_dump / pg_dumpall / pg_restore) can be installed.
+FROM alpine:3.23 AS runner
+
+RUN apk add --no-cache postgresql18-client
 
 COPY --from=builder /app/main /main
 COPY --from=builder --chown=65532:65532 /data /data

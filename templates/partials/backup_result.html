@@ -1,0 +1,16 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl modal-panel w-full max-w-md p-6">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="text-green-400 text-lg">&#10003;</span>
+                <span class="text-sm text-white">
+                    {{ if .Restore }}Restored <span class="font-mono">{{ .File }}</span> into <span class="font-mono">{{ .DB }}</span>
+                    {{ else }}{{ .Label }} saved as <span class="font-mono">{{ .File }}</span>{{ end }}
+                </span>
+            </div>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+        {{ if .Output }}<pre class="text-xs font-mono text-gray-300 bg-gray-900 border border-gray-700 rounded p-2 mt-3 max-h-40 overflow-auto whitespace-pre-wrap">{{ .Output }}</pre>{{ end }}
+    </div>
+</div>
