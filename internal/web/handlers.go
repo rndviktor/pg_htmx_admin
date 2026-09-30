@@ -1253,8 +1253,6 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	start := time.Now()
-
 	// Hold a pool connection for the whole statement so the backend PID can be
 	// registered and the running query cancelled via the Stop button.
 	conn, err := pool.Acquire(r.Context())
@@ -1267,6 +1265,10 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 
 	s.registerQuery(tabID, conn.Conn().PgConn().PID(), pool)
 	defer s.unregisterQuery(tabID)
+
+	// Start the clock only now: waiting for a pooled connection is not query
+	// time.
+	start := time.Now()
 
 	// EXPLAIN returns rows but cannot be used as a subquery, so it must be
 	// executed directly rather than wrapped for count/pagination.
@@ -1344,6 +1346,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rowsData [][]string
+	var formatTime time.Duration // Go-side stringification, not database time
 	for rows.Next() {
 		vals := make([]any, colCount)
 		valPtrs := make([]any, colCount)
@@ -1355,6 +1358,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Row scan error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		fmtStart := time.Now()
 		row := make([]string, colCount)
 		for i, v := range vals {
 			if v == nil {
@@ -1364,9 +1368,10 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rowsData = append(rowsData, row)
+		formatTime += time.Since(fmtStart)
 	}
 
-	elapsed := time.Since(start).Seconds()
+	elapsed := (time.Since(start) - formatTime).Seconds()
 
 	s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, int64(elapsed*1000), int64(total))
 
