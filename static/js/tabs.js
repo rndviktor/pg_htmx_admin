@@ -326,6 +326,7 @@ function executeQuery(btn, page) {
             if (grid && result) {
                 grid.innerHTML = result.innerHTML;
                 initDataGridResize(grid, panel);
+                if (result.classList.contains("query-multi")) decorateMultiResults(grid);
             }
 
             const total = parseInt(data.total) || 0;

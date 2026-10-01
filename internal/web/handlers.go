@@ -1288,6 +1288,14 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// time.
 	start := time.Now()
 
+	// A script with several statements runs them in order and returns one
+	// result set per statement (multi.go); single statements keep the paged
+	// path below.
+	if stmts := scriptStatements(query); len(stmts) > 1 {
+		s.renderMulti(w, r, conn, stmts, serverID, dbName, tabID, query, limit, notices, start)
+		return
+	}
+
 	// EXPLAIN returns rows but cannot be used as a subquery, so it must be
 	// executed directly rather than wrapped for count/pagination.
 	if isExplain(query) {

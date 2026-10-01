@@ -187,9 +187,14 @@ that is missing, ordered by priority.
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
 - ~~**P2.2.** **Backup & Restore**~~ — **done**; see "What this app already
   has" above.
-- **P2.3.** **Query tool power features** — remaining: multiple result
-  sets, async `LISTEN`/`NOTIFY` streaming and server-side result cursors.
-  Done so far: execute selected text, per-run timings (status bar, Messages,
+- **P2.3.** **Query tool power features** — remaining: async `LISTEN` /
+  `NOTIFY` streaming and server-side result cursors (paging today is
+  `LIMIT`/`OFFSET`, re-running the query per page). Done so far: **multiple
+  result sets** (a script with several statements runs them in order on the
+  tab's connection and shows one result tab per statement; it stops at the
+  first error, and each set is capped at the page limit because scripts are
+  not paged; `internal/web/multi.go`, `static/js/results.js`), execute
+  selected text, per-run timings (status bar, Messages,
   history), **transaction control** (BEGIN / COMMIT / ROLLBACK buttons, an
   Auto-commit toggle and a state badge; a tab's connection is pinned only
   while it is inside a transaction, so typed `BEGIN`/`SAVEPOINT` work too;
