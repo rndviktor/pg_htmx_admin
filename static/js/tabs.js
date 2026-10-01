@@ -288,6 +288,7 @@ function executeQuery(btn, page) {
         page: String(page),
         limit: QUERY_PAGE_LIMIT,
     });
+    txApplyAutocommit(panel, body);
 
     const t0 = performance.now();
     if (status) status.textContent = "Running... 0s";
@@ -333,6 +334,7 @@ function executeQuery(btn, page) {
             const rows = grid ? grid.querySelectorAll("tbody tr").length : 0;
 
             logMessage(panel, "info", "Query executed in " + elapsed + "s");
+            applyNotices(panel, data.notices);
 
             if (message) {
                 if (status) status.textContent = message + " — " + elapsed + "s";
@@ -386,7 +388,10 @@ function executeQuery(btn, page) {
                 ed.focus(panel, { from: q.from, to: q.to });
             }
         })
-        .finally(() => clearInterval(ticker));
+        .finally(() => {
+            clearInterval(ticker);
+            refreshTxState(panel);
+        });
 }
 
 // Stop button / Alt+Shift+C: aborts the in-flight HTTP request for the
@@ -852,6 +857,7 @@ function closeTab(id, e) {
     if (btn) btn.remove();
     if (panel) panel.remove();
     delete tabMeta[id];
+    txCloseTab(id);
 
     const ctrl = runningQueriesByTab[id];
     if (ctrl) {

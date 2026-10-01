@@ -187,26 +187,30 @@ that is missing, ordered by priority.
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
 - ~~**P2.2.** **Backup & Restore**~~ — **done**; see "What this app already
   has" above.
-- **P2.3.** **Query tool power features** — remaining: transaction control
-  (BEGIN / COMMIT / ROLLBACK buttons, auto-commit; needs a per-tab pinned
-  connection because `handleExecuteQuery` acquires a pool connection per
-  request), multiple result sets,
-  NOTICE / LISTEN output in the Notifications tab
-  (`templates/partials/script_tab_panel.html`, never written to) and
-  server-side result cursors. Done so far: execute selected text,
-  per-run timings (status bar, Messages, history), **visual EXPLAIN**
-  (F7 / Shift+F7: `POST /api/explain` runs `EXPLAIN (FORMAT JSON)`, and
-  `static/js/explain.js` renders a tree with exclusive-time bars, estimate
-  vs actual rows, hotspot / misestimate / seq-scan-filter / spill badges, a
-  sortable table and raw JSON; ANALYZE always runs in a transaction that is
-  rolled back, so INSERT/UPDATE/DELETE leave no trace;
-  `internal/web/explain.go`), **Download as CSV** (full
+- **P2.3.** **Query tool power features** — remaining: multiple result
+  sets, async `LISTEN`/`NOTIFY` streaming and server-side result cursors.
+  Done so far: execute selected text, per-run timings (status bar, Messages,
+  history), **transaction control** (BEGIN / COMMIT / ROLLBACK buttons, an
+  Auto-commit toggle and a state badge; a tab's connection is pinned only
+  while it is inside a transaction, so typed `BEGIN`/`SAVEPOINT` work too;
+  open transactions are rolled back on tab close, page refresh, server
+  disconnect and after 15 minutes idle, and at most `MaxConns - 1`
+  transactions can be open per database; `internal/web/session.go`),
+  **NOTICE / WARNING output** in the Notifications tab for notices raised
+  during a run (`internal/web/notices.go`, `static/js/transactions.js`),
+  **visual EXPLAIN** (F7 / Shift+F7: `POST /api/explain` runs
+  `EXPLAIN (FORMAT JSON)`, and `static/js/explain.js` renders a tree with
+  exclusive-time bars, estimate vs actual rows, hotspot / misestimate /
+  seq-scan-filter / spill badges, a sortable table and raw JSON; ANALYZE
+  always runs in a transaction that is rolled back, so INSERT/UPDATE/DELETE
+  leave no trace; `internal/web/explain.go`), **Download as CSV** (full
   result streamed via `COPY ... TO STDOUT`, `internal/web/export.go`),
-  history now records `success` / `error` / `cancelled` (failed and
-  cancelled runs included; `internal/web/history.go`), a table's **UPDATE
-  Script** (`handleUpdateScript`, `internal/web/script.go`) and a **Scratch
-  Pad** that persists per tab with the workspace (`workspace_tabs.scratch_text`,
-  its x button clears it).
+  history recording `success` / `error` / `cancelled` (failed and cancelled
+  runs included; `internal/web/history.go`), a table's **UPDATE Script**
+  (`handleUpdateScript`, `internal/web/script.go`) and a **Scratch Pad** that
+  persists per tab with the workspace (`workspace_tabs.scratch_text`, its x
+  button clears it). Known limits: EXPLAIN and CSV export use their own
+  connection, so they do not see uncommitted work of an open transaction.
 
 ### P3 — Management depth
 

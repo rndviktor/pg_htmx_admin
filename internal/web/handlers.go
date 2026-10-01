@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -45,6 +46,7 @@ func NewServer() (*Server, error) {
 	}
 	s.loadDisconnectedServers()
 	s.loadDisconnectedDatabases()
+	startSessionJanitor()
 	return s, nil
 }
 
@@ -73,6 +75,8 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/cancel-query", s.handleCancelQuery)
 		r.Post("/api/export-csv", s.handleExportCSV)
 		r.Post("/api/explain", s.handleExplain)
+		r.Get("/api/tx/status", s.handleTxStatus)
+		r.Post("/api/tx/close", s.handleTxClose)
 
 		r.Get("/api/ddl/{kind}/modal", s.handleDDLModal)
 		r.Post("/api/ddl/{kind}/preview", s.handleDDLPreview)
@@ -1256,18 +1260,29 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hold a pool connection for the whole statement so the backend PID can be
-	// registered and the running query cancelled via the Stop button.
-	conn, err := pool.Acquire(r.Context())
+	// Hold a connection for the whole statement so the backend PID can be
+	// registered and the running query cancelled via the Stop button. The
+	// tab's pinned connection is reused while it is inside a transaction;
+	// finish releases it (or keeps it pinned) once the response is complete.
+	conn, finish, err := acquireTabConn(r.Context(), tabID, pool, serverID, dbName, r.FormValue("autocommit") != "off")
 	if err != nil {
-		log.Printf("[query] pool acquire for server %d db %q failed: %v", serverID, dbName, err)
-		http.Error(w, "Cannot connect to database: "+err.Error(), http.StatusBadGateway)
+		log.Printf("[query] acquire for server %d db %q failed: %v", serverID, dbName, err)
+		var ae *acquireError
+		if errors.As(err, &ae) {
+			http.Error(w, ae.Msg, ae.Status)
+		} else {
+			http.Error(w, "Cannot connect to database: "+err.Error(), http.StatusBadGateway)
+		}
 		return
 	}
-	defer conn.Release()
+	defer finish()
 
 	s.registerQuery(tabID, conn.Conn().PgConn().PID(), pool)
 	defer s.unregisterQuery(tabID)
+
+	// Collect NOTICE/WARNING output raised while the statement runs.
+	notices, stopNotices := watchNotices(conn.Conn().PgConn())
+	defer stopNotices()
 
 	// Start the clock only now: waiting for a pooled connection is not query
 	// time.
@@ -1310,6 +1325,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			"Elapsed":    elapsed,
 			"Message":    message,
 			"IsError":    err != nil,
+			"Notices":    notices.JSON(),
 		})
 		return
 	}
@@ -1406,6 +1422,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		"Offset":     offset,
 		"Elapsed":    elapsed,
 		"Message":    "",
+		"Notices":    notices.JSON(),
 	})
 }
 

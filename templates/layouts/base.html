@@ -32,6 +32,16 @@
            nullability, default, generated-expression and key selectors
            vertically aligned. The Tailwind build is pre-compiled, so a
            custom class is used instead of grid-cols-* utilities. */
+        /* Transaction state badge (static/js/transactions.js) */
+        .tx-badge { display: inline-flex; align-items: center; }
+        .tx-active { color: #60a5fa; }
+        .tx-aborted { color: #f87171; }
+        .ac-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+                     padding: 0.25rem 0.5rem; border: 1px solid #4b5563; border-radius: 0.25rem; color: #6b7280; }
+        .ac-toggle:hover { background: #374151; }
+        .ac-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .ac-toggle:has(input:checked) { color: #60a5fa; border-color: #2563eb; }
+
         /* Visual EXPLAIN (static/js/explain.js) */
         .xp-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #374151; }
         .xp-tab { padding: 2px 10px; font-size: 11px; color: #9ca3af; border: 1px solid #4b5563; border-radius: 4px; }
@@ -109,6 +119,7 @@
     <script src="/static/js/tree.js"></script>
     <script src="/static/js/tabs.js"></script>
     <script src="/static/js/explain.js"></script>
+    <script src="/static/js/transactions.js"></script>
     <script src="/static/js/properties.js"></script>
     <script src="/static/js/ddl.js"></script>
     <script src="/static/js/save-dialog.js"></script>

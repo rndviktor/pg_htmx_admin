@@ -40,6 +40,37 @@
       class="px-2 py-1 text-gray-300 hover:text-white hover:bg-gray-700 border border-gray-600 rounded text-sm">
       <span class="inline-block scale-[1.5]">&#9724;</span>
     </button>
+    <button onclick="txCommand(this, 'BEGIN')" title="Begin transaction (BEGIN)"
+      style="margin-left:1.25em"
+      class="px-2 py-1 text-blue-400 hover:text-blue-300 hover:bg-gray-700 border border-gray-600 rounded text-sm inline-flex items-center justify-center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[27px] h-[27px]">
+        <path d="M6 3v18" />
+        <path d="M6 5h12l-3.5 4 3.5 4H6" />
+      </svg>
+    </button>
+    <button onclick="txCommand(this, 'COMMIT')" title="Commit transaction (COMMIT)"
+      class="px-2 py-1 text-green-400 hover:text-white hover:bg-gray-700 border border-gray-600 rounded text-sm inline-flex items-center justify-center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[27px] h-[27px]">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8 12.5l3 3 5-6" />
+      </svg>
+    </button>
+    <button onclick="txCommand(this, 'ROLLBACK')" title="Roll back transaction (ROLLBACK)"
+      class="px-2 py-1 text-red-400 hover:text-red-300 hover:bg-gray-700 border border-gray-600 rounded text-sm inline-flex items-center justify-center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[27px] h-[27px]">
+        <path d="M9 14L4 9l5-5" />
+        <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+      </svg>
+    </button>
+    <label class="ac-toggle" title="Auto-commit is on: each statement commits by itself. Click to turn it off and run statements inside a transaction until you COMMIT or ROLLBACK.">
+      <input type="checkbox" class="autocommit-toggle" checked onchange="autoCommitChanged(this)">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[27px] h-[27px]">
+        <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
+      </svg>
+    </label>
+    <span class="tx-badge hidden" title="">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-[18px] h-[18px]"><circle cx="12" cy="12" r="7" /></svg>
+    </span>
     <button
       onclick="executeExplain(this, false)"
       title="Explain query (EXPLAIN) — F7"

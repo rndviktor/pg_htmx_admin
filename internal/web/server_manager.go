@@ -232,6 +232,9 @@ func (s *Server) loadDisconnectedServers() {
 // server reconnect starts every one of its databases fresh instead of
 // leaving them stuck gray.
 func (s *Server) dropServerPools(id int64) {
+	// Open transactions pin pool connections and pool.Close waits for every
+	// connection to be returned, so end them first.
+	releaseSessions(id, "")
 	mu.Lock()
 	if p := dbPools[id]; p != nil {
 		delete(dbPools, id)
@@ -257,6 +260,7 @@ func (s *Server) dropServerPools(id int64) {
 
 // dropDatabasePool closes and removes the cached pool of a single database.
 func (s *Server) dropDatabasePool(id int64, database string) {
+	releaseSessions(id, database) // see dropServerPools
 	mu.Lock()
 	key := dbPoolKey{ServerID: id, Database: database}
 	if p := dbSpecificPools[key]; p != nil {
@@ -360,7 +364,13 @@ func dialServer(ctx context.Context, srv sqlite.Server, dbname string) (*pgxpool
 	connectCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(connectCtx, u.String())
+	cfg, err := pgxpool.ParseConfig(u.String())
+	if err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+	// Route NOTICE/WARNING messages to the query that raised them (notices.go).
+	cfg.ConnConfig.OnNotice = onNotice
+	pool, err := pgxpool.NewWithConfig(connectCtx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
