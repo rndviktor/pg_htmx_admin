@@ -187,15 +187,21 @@ that is missing, ordered by priority.
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
 - ~~**P2.2.** **Backup & Restore**~~ — **done**; see "What this app already
   has" above.
-- **P2.3.** **Query tool power features** — transaction control (BEGIN / COMMIT /
-  ROLLBACK buttons, auto-commit), visual/shaped EXPLAIN (currently plain
-  text in `internal/web/handlers.go`), multiple result sets, execute a
-  selected statement, query timings, download results as CSV, server-side
-  result cursors. Minor query-tool stubs: the Notifications tab is never
-  written to (`templates/partials/script_tab_panel.html:227-248`), the
-  Scratch Pad is an inert textarea (:199-206), history always records
-  `"success"` (`internal/web/history.go:152`), and a table's **UPDATE Script**
-  opens an empty tab (`static/js/tabs.js:761-775`).
+- **P2.3.** **Query tool power features** — remaining: transaction control
+  (BEGIN / COMMIT / ROLLBACK buttons, auto-commit; needs a per-tab pinned
+  connection because `handleExecuteQuery` acquires a pool connection per
+  request), visual/shaped EXPLAIN (currently plain text rows from
+  `renderExplain` in `internal/web/handlers.go`), multiple result sets,
+  NOTICE / LISTEN output in the Notifications tab
+  (`templates/partials/script_tab_panel.html`, never written to) and
+  server-side result cursors. Done so far: execute selected text,
+  per-run timings (status bar, Messages, history), **Download as CSV** (full
+  result streamed via `COPY ... TO STDOUT`, `internal/web/export.go`),
+  history now records `success` / `error` / `cancelled` (failed and
+  cancelled runs included; `internal/web/history.go`), a table's **UPDATE
+  Script** (`handleUpdateScript`, `internal/web/script.go`) and a **Scratch
+  Pad** that persists per tab with the workspace (`workspace_tabs.scratch_text`,
+  its x button clears it).
 
 ### P3 — Management depth
 

@@ -116,6 +116,37 @@ func (s *Server) handleInsertScript(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"query": query})
 }
 
+// handleUpdateScript generates a skeleton UPDATE statement for a table and
+// returns it as JSON {query: "..."}. Each column is set to a "?" placeholder,
+// matching pgAdmin's UPDATE Script output.
+func (s *Server) handleUpdateScript(w http.ResponseWriter, r *http.Request) {
+	pool, _, _, schemaName, tableName, ok := s.loadTablePool(w, r)
+	if !ok {
+		return
+	}
+
+	items, err := pgdb.New(pool).GetTableColumns(r.Context(), pgdb.GetTableColumnsParams{
+		TableSchema: schemaName,
+		TableName:   tableName,
+	})
+	if err != nil {
+		log.Printf("[script] Failed to query columns for %s.%s: %v", schemaName, tableName, err)
+		http.Error(w, "Failed to query columns: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sets := make([]string, 0, len(items))
+	for _, it := range items {
+		sets = append(sets, getString(it)+"=?")
+	}
+
+	query := "UPDATE " + qualIdent(schemaName, tableName) + "\n\tSET " +
+		strings.Join(sets, ", ") + "\n\tWHERE <condition>;"
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"query": query})
+}
+
 // handleCreateViewScript generates a pgAdmin-style CREATE OR REPLACE VIEW
 // script for a view and returns it as JSON {query: "..."}. The view body is
 // the live definition returned by pg_get_viewdef.

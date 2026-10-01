@@ -18,7 +18,7 @@
         <span class="text-gray-500">{{ .Executed }}</span>
         {{ if .DurationMs.Valid }}<span class="text-blue-400">{{ .DurationMs.Int64 }} ms</span>{{ end }}
         {{ if .RowsAffected.Valid }}<span class="text-green-400">{{ .RowsAffected.Int64 }} rows</span>{{ end }}
-        {{ if .Status.Valid }}<span class="{{ if eq .Status.String "error" }}text-red-400{{ else }}text-green-500{{ end }}">{{ .Status.String }}</span>{{ end }}
+        {{ if .Status.Valid }}<span class="{{ if eq .Status.String "error" }}text-red-400{{ else if eq .Status.String "cancelled" }}text-yellow-400{{ else }}text-green-500{{ end }}">{{ .Status.String }}</span>{{ end }}
       </div>
     </div>
   </button>

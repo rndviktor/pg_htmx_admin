@@ -26,6 +26,7 @@ type workspaceTabJSON struct {
 	Query      string `json:"query"`
 	Path       string `json:"path"`
 	PathExists bool   `json:"path_exists"`
+	Scratch    string `json:"scratch"`
 	TabOrder   int    `json:"tab_order"`
 }
 
@@ -99,6 +100,7 @@ func (s *Server) handleWorkspaceGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to load workspace tabs", http.StatusInternalServerError)
 		return
 	}
+	scratch := s.loadScratchTexts(r)
 	for _, t := range tabs {
 		serverID, dbName := decodeConnection(t.ConnectionID)
 
@@ -132,6 +134,7 @@ func (s *Server) handleWorkspaceGet(w http.ResponseWriter, r *http.Request) {
 			Query:      t.QueryText.String,
 			Path:       path,
 			PathExists: pathExists,
+			Scratch:    scratch[t.ID],
 			TabOrder:   int(t.TabOrder),
 		})
 	}
@@ -189,7 +192,35 @@ func (s *Server) handleWorkspaceSave(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to save workspace", http.StatusInternalServerError)
 			return
 		}
+		if t.Scratch != "" {
+			if _, err := s.sqliteDB.ExecContext(ctx,
+				`UPDATE workspace_tabs SET scratch_text = ? WHERE id = ? AND user_id = ?`,
+				t.Scratch, t.ID, db.DefaultUserID); err != nil {
+				log.Printf("Failed to save scratch pad of tab %s: %v", t.ID, err)
+			}
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// loadScratchTexts returns each saved tab's Scratch Pad text keyed by tab id.
+// The column was added after the sqlc queries were generated, so it is read
+// with a plain query; a failure only loses the scratch text, never the tabs.
+func (s *Server) loadScratchTexts(r *http.Request) map[string]string {
+	texts := map[string]string{}
+	rows, err := s.sqliteDB.QueryContext(r.Context(),
+		`SELECT id, COALESCE(scratch_text, '') FROM workspace_tabs WHERE user_id = ?`, db.DefaultUserID)
+	if err != nil {
+		log.Printf("Failed to load scratch pads: %v", err)
+		return texts
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, text string
+		if err := rows.Scan(&id, &text); err == nil {
+			texts[id] = text
+		}
+	}
+	return texts
 }

@@ -71,6 +71,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/query-history/{id}", s.handleQueryHistoryDetail)
 		r.Post("/api/execute-query", s.handleExecuteQuery)
 		r.Post("/api/cancel-query", s.handleCancelQuery)
+		r.Post("/api/export-csv", s.handleExportCSV)
 
 		r.Get("/api/ddl/{kind}/modal", s.handleDDLModal)
 		r.Post("/api/ddl/{kind}/preview", s.handleDDLPreview)
@@ -205,6 +206,7 @@ func (s *Server) Routes() http.Handler {
 							r.Get("/create-script", s.handleCreateScript)
 							r.Get("/insert-script", s.handleInsertScript)
 							r.Get("/delete-script", s.handleDeleteScript)
+							r.Get("/update-script", s.handleUpdateScript)
 
 							r.Route("/indexes/{indexName}", func(r chi.Router) {
 								r.Get("/properties", s.handleIndexProperties)
@@ -1294,7 +1296,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			rowsAffected = exec.RowsAffected()
 		}
 
-		s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, int64(elapsed*1000), rowsAffected)
+		s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, int64(elapsed*1000), rowsAffected, queryStatus(err))
 
 		RenderPartial(w, "query_result.html", map[string]any{
 			"Headers":    []string{},
@@ -1324,6 +1326,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	var total int
 	if err := br.QueryRow().Scan(&total); err != nil {
 		log.Printf("[query] count query failed on server %d db %q: %v", serverID, dbName, err)
+		s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, time.Since(start).Milliseconds(), 0, queryStatus(err))
 		http.Error(w, "Count query failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1332,6 +1335,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	rows, err := br.Query()
 	if err != nil {
 		log.Printf("[query] data query failed on server %d db %q: %v", serverID, dbName, err)
+		s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, time.Since(start).Milliseconds(), 0, queryStatus(err))
 		http.Error(w, "Query failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1355,6 +1359,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := rows.Scan(valPtrs...); err != nil {
 			log.Printf("[query] row scan error on server %d db %q: %v", serverID, dbName, err)
+			s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, time.Since(start).Milliseconds(), 0, historyError)
 			http.Error(w, "Row scan error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1371,9 +1376,19 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		formatTime += time.Since(fmtStart)
 	}
 
+	// rows.Next also returns false when the statement fails mid-stream (e.g. a
+	// later row divides by zero); without this check the partial result would
+	// be shown as a success.
+	if err := rows.Err(); err != nil {
+		log.Printf("[query] data query failed while reading rows on server %d db %q: %v", serverID, dbName, err)
+		s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, time.Since(start).Milliseconds(), 0, queryStatus(err))
+		http.Error(w, "Query failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	elapsed := (time.Since(start) - formatTime).Seconds()
 
-	s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, int64(elapsed*1000), int64(total))
+	s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, int64(elapsed*1000), int64(total), historySuccess)
 
 	totalPages := (total + limit - 1) / limit
 	if totalPages < 1 {
@@ -1492,7 +1507,14 @@ func (s *Server) renderExplain(w http.ResponseWriter, r *http.Request, conn *pgx
 		}
 	}
 
-	s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, int64(elapsed*1000), int64(len(rowsData)))
+	status := historySuccess
+	if message != "" {
+		status = queryStatus(err)
+		if err == nil {
+			status = historyError // failed while reading the plan rows
+		}
+	}
+	s.recordQueryHistory(r.Context(), serverID, dbName, tabID, query, int64(elapsed*1000), int64(len(rowsData)), status)
 
 	RenderPartial(w, "query_result.html", map[string]any{
 		"Headers":    headers,

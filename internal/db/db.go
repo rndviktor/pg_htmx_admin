@@ -153,6 +153,22 @@ func migrate(database *sql.DB) error {
 		}
 	}
 
+	// scratch_text persists each script tab's Scratch Pad across refreshes.
+	rows7, err := database.Query(`SELECT name FROM pragma_table_info('workspace_tabs') WHERE name = 'scratch_text'`)
+	if err != nil {
+		return err
+	}
+	hasScratch := rows7.Next()
+	rows7.Close()
+	if err := rows7.Err(); err != nil {
+		return err
+	}
+	if !hasScratch {
+		if _, err := database.Exec(`ALTER TABLE workspace_tabs ADD COLUMN scratch_text TEXT DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
 	// disconnected tracks servers the user deliberately disconnected from
 	// so that state survives across application restarts.
 	rows6, err := database.Query(`SELECT name FROM pragma_table_info('server') WHERE name = 'disconnected'`)

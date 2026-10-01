@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	sqlite "htmx-golang-excercise/internal/sqlc/sqlite/db"
 )
@@ -131,12 +133,36 @@ func formatHistoryTime(t sql.NullTime) string {
 	return t.Time.Format("Jan 02 15:04:05")
 }
 
-// recordQueryHistory persists a completed query run to the SQLite
-// query_history table so it shows up in the script window's history panel.
-func (s *Server) recordQueryHistory(ctx context.Context, serverID int64, dbName, tabID, query string, durationMs int64, rowsAffected int64) {
+// History statuses stored in query_history.status.
+const (
+	historySuccess   = "success"
+	historyError     = "error"
+	historyCancelled = "cancelled"
+)
+
+// queryStatus maps the outcome of a query run to its history status. SQLSTATE
+// 57014 (query_canceled) is what the Stop button's pg_cancel_backend produces.
+func queryStatus(err error) string {
+	if err == nil {
+		return historySuccess
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "57014" {
+		return historyCancelled
+	}
+	return historyError
+}
+
+// recordQueryHistory persists a finished query run (successful or not) to the
+// SQLite query_history table so it shows up in the script window's history
+// panel. status is one of the history* constants.
+func (s *Server) recordQueryHistory(ctx context.Context, serverID int64, dbName, tabID, query string, durationMs int64, rowsAffected int64, status string) {
 	if serverID <= 0 || dbName == "" || tabID == "" || query == "" {
 		return
 	}
+	// A run aborted by the browser (Stop button) cancels the request context;
+	// the history row must still be written.
+	ctx = context.WithoutCancel(ctx)
 
 	conn := sql.NullString{String: "", Valid: false}
 	if c := encodeConnection(serverID, dbName); c.Valid {
@@ -149,7 +175,7 @@ func (s *Server) recordQueryHistory(ctx context.Context, serverID int64, dbName,
 		ConnectionID: conn,
 		QueryText:    query,
 		DurationMs:   sql.NullInt64{Int64: durationMs, Valid: true},
-		Status:       sql.NullString{String: "success", Valid: true},
+		Status:       sql.NullString{String: status, Valid: true},
 		RowsAffected: sql.NullInt64{Int64: rowsAffected, Valid: true},
 	})
 	if err != nil {

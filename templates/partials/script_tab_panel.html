@@ -84,6 +84,15 @@
         <path d="M 36.461 57.996 C 36.461 57.996 35.347 76.251 37.952 80.384 C 39.491 82.825 42.765 84.212 44.776 84.222 C 46.361 84.229 49.041 81.876 49.041 81.876"/>
       </svg>
     </button>
+    <button title="Download result as CSV" onclick="exportCsv(this)"
+      class="px-2 py-1 text-blue-400 hover:text-blue-300 hover:bg-gray-700 border border-gray-600 rounded text-sm inline-flex items-center justify-center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[27px] h-[27px]">
+        <path d="M12 3v12" />
+        <path d="M7 11l5 5 5-5" />
+        <path d="M4 20h16" />
+      </svg>
+    </button>
     <button title="Format SQL (Ctrl+K)" onclick="formatSql(this)"
       style="margin-left:1.25em"
       class="px-2 py-1 text-blue-400 hover:text-blue-300 hover:bg-gray-700 border border-gray-600 rounded text-sm inline-flex items-center justify-center">
@@ -200,7 +209,7 @@
     <div class="flex flex-col flex-1 min-w-0">
       <div class="flex items-center justify-between px-2 py-1 text-xs bg-gray-800 border-b border-gray-700 text-gray-400">
         <span>Scratch Pad</span>
-        <span class="cursor-pointer hover:text-gray-200">&#10005;</span>
+        <span class="cursor-pointer hover:text-gray-200" title="Clear Scratch Pad" onclick="clearScratchPad(this)">&#10005;</span>
       </div>
       <textarea name="scratchpad" class="flex-1 border-none outline-none p-2 resize-none box-border bg-gray-900 text-gray-200 placeholder-gray-500"></textarea>
     </div>
