@@ -72,6 +72,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/execute-query", s.handleExecuteQuery)
 		r.Post("/api/cancel-query", s.handleCancelQuery)
 		r.Post("/api/export-csv", s.handleExportCSV)
+		r.Post("/api/explain", s.handleExplain)
 
 		r.Get("/api/ddl/{kind}/modal", s.handleDDLModal)
 		r.Post("/api/ddl/{kind}/preview", s.handleDDLPreview)

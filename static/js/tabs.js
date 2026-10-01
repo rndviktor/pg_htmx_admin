@@ -446,25 +446,19 @@ function executeExplain(btn, analyze) {
 
     const keyword = analyze ? "EXPLAIN ANALYZE" : "EXPLAIN";
     const body = new URLSearchParams({
-        sql_query: keyword + " " + query,
+        sql_query: query,
         server_id: params.sid.value,
         db_name: params.db.value,
         tab_id: panelTabId(panel),
-        page: "1",
-        limit: QUERY_PAGE_LIMIT,
     });
+    if (analyze) body.set("analyze", "on");
 
     const t0 = performance.now();
     if (status) status.textContent = keyword + "...";
-    fetch("/api/execute-query", { method: "POST", body })
-        .then((r) => { if (!r.ok) throw r; return r.text(); })
-        .then((html) => {
-            const tmp = document.createElement("div");
-            tmp.innerHTML = html;
-            const result = tmp.querySelector(".query-result");
-            if (result && explainPanel) {
-                explainPanel.innerHTML = result.innerHTML;
-            }
+    fetch("/api/explain", { method: "POST", body })
+        .then((r) => { if (!r.ok) throw r; return r.json(); })
+        .then((payload) => {
+            if (explainPanel) renderExplainPlan(explainPanel, payload);
             if (status) status.textContent = keyword + " — " + elapsedSeconds(t0) + "s";
             logMessage(panel, "info", keyword + " executed in " + elapsedSeconds(t0) + "s");
 

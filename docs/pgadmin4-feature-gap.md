@@ -190,12 +190,17 @@ that is missing, ordered by priority.
 - **P2.3.** **Query tool power features** — remaining: transaction control
   (BEGIN / COMMIT / ROLLBACK buttons, auto-commit; needs a per-tab pinned
   connection because `handleExecuteQuery` acquires a pool connection per
-  request), visual/shaped EXPLAIN (currently plain text rows from
-  `renderExplain` in `internal/web/handlers.go`), multiple result sets,
+  request), multiple result sets,
   NOTICE / LISTEN output in the Notifications tab
   (`templates/partials/script_tab_panel.html`, never written to) and
   server-side result cursors. Done so far: execute selected text,
-  per-run timings (status bar, Messages, history), **Download as CSV** (full
+  per-run timings (status bar, Messages, history), **visual EXPLAIN**
+  (F7 / Shift+F7: `POST /api/explain` runs `EXPLAIN (FORMAT JSON)`, and
+  `static/js/explain.js` renders a tree with exclusive-time bars, estimate
+  vs actual rows, hotspot / misestimate / seq-scan-filter / spill badges, a
+  sortable table and raw JSON; ANALYZE always runs in a transaction that is
+  rolled back, so INSERT/UPDATE/DELETE leave no trace;
+  `internal/web/explain.go`), **Download as CSV** (full
   result streamed via `COPY ... TO STDOUT`, `internal/web/export.go`),
   history now records `success` / `error` / `cancelled` (failed and
   cancelled runs included; `internal/web/history.go`), a table's **UPDATE

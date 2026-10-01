@@ -32,6 +32,38 @@
            nullability, default, generated-expression and key selectors
            vertically aligned. The Tailwind build is pre-compiled, so a
            custom class is used instead of grid-cols-* utilities. */
+        /* Visual EXPLAIN (static/js/explain.js) */
+        .xp-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #374151; }
+        .xp-tab { padding: 2px 10px; font-size: 11px; color: #9ca3af; border: 1px solid #4b5563; border-radius: 4px; }
+        .xp-tab:hover { color: #e5e7eb; background: #374151; }
+        .xp-tab-active { color: #fff; background: #374151; border-color: #60a5fa; }
+        .xp-body { padding: 8px; font-size: 12px; overflow: auto; }
+        .xp-node .xp-node { margin-left: 18px; border-left: 1px solid #374151; padding-left: 6px; }
+        .xp-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; cursor: pointer; border-radius: 4px; white-space: nowrap; }
+        .xp-row:hover { background: rgba(55, 65, 81, 0.6); }
+        .xp-toggle { width: 12px; color: #9ca3af; flex: none; }
+        .xp-type { font-weight: 600; color: #e5e7eb; }
+        .xp-target { color: #9ca3af; }
+        .xp-bar { width: 90px; height: 8px; background: #1f2937; border-radius: 4px; overflow: hidden; flex: none; }
+        .xp-bar-fill { display: block; height: 100%; }
+        .xp-cool { background: #3b82f6; }
+        .xp-warm { background: #f59e0b; }
+        .xp-hot { background: #ef4444; }
+        .xp-num { color: #d1d5db; font-variant-numeric: tabular-nums; }
+        .xp-rows { color: #9ca3af; }
+        .xp-badges { display: inline-flex; gap: 4px; }
+        .xp-badge { font-size: 10px; padding: 0 6px; border-radius: 8px; color: #fbbf24; border: 1px solid #92400e; background: rgba(146, 64, 14, 0.25); }
+        .xp-badge-hot { color: #fca5a5; border-color: #991b1b; background: rgba(153, 27, 27, 0.3); }
+        .xp-details { margin: 2px 0 6px 20px; padding: 6px 8px; background: #111827; border: 1px solid #374151; border-radius: 4px; }
+        .xp-details-table td { padding: 1px 12px 1px 0; vertical-align: top; }
+        .xp-key { color: #9ca3af; white-space: nowrap; }
+        .xp-val { color: #e5e7eb; font-family: ui-monospace, monospace; word-break: break-all; }
+        .xp-table { border-collapse: collapse; width: 100%; }
+        .xp-table th, .xp-table td { text-align: left; padding: 3px 10px; border: 1px solid #374151; }
+        .xp-table th { color: #9ca3af; background: #1f2937; }
+        .xp-raw { color: #d1d5db; font-size: 11px; white-space: pre-wrap; }
+        .xp-footer { padding: 6px 12px; font-size: 11px; color: #9ca3af; border-top: 1px solid #374151; }
+        .xp-note { margin-top: 2px; color: #fbbf24; }
         .ddl-col-row {
             display: grid;
             grid-template-columns: 1.1fr 1.1fr 0.8fr 1.1fr 1.3fr 0.6fr 1.5rem;
@@ -76,6 +108,7 @@
     <script src="/static/js/context-menu.js"></script>
     <script src="/static/js/tree.js"></script>
     <script src="/static/js/tabs.js"></script>
+    <script src="/static/js/explain.js"></script>
     <script src="/static/js/properties.js"></script>
     <script src="/static/js/ddl.js"></script>
     <script src="/static/js/save-dialog.js"></script>
