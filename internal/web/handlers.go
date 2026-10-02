@@ -47,6 +47,7 @@ func NewServer() (*Server, error) {
 	s.loadDisconnectedServers()
 	s.loadDisconnectedDatabases()
 	startSessionJanitor()
+	startListenJanitor()
 	return s, nil
 }
 
@@ -77,6 +78,8 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/explain", s.handleExplain)
 		r.Get("/api/tx/status", s.handleTxStatus)
 		r.Post("/api/tx/close", s.handleTxClose)
+		r.Get("/api/listen/stream", s.handleListenStream)
+		r.Post("/api/listen/close", s.handleListenClose)
 
 		r.Get("/api/ddl/{kind}/modal", s.handleDDLModal)
 		r.Post("/api/ddl/{kind}/preview", s.handleDDLPreview)
@@ -1291,9 +1294,19 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// A script with several statements runs them in order and returns one
 	// result set per statement (multi.go); single statements keep the paged
 	// path below.
-	if stmts := scriptStatements(query); len(stmts) > 1 {
-		s.renderMulti(w, r, conn, stmts, serverID, dbName, tabID, query, limit, notices, start)
+	// LISTEN/UNLISTEN are routed to the tab's dedicated listener connection
+	// (listen.go); everything else runs on the tab's connection.
+	intercept := listenIntercept(r.Context(), tabID, pool, serverID, dbName)
+	stmts := scriptStatements(query)
+	if len(stmts) > 1 {
+		s.renderMulti(w, r, conn, stmts, serverID, dbName, tabID, query, limit, notices, intercept, start)
 		return
+	}
+	if len(stmts) == 1 {
+		if tag, ok, lerr := intercept(stmts[0]); ok {
+			s.renderCommandResult(w, r, serverID, dbName, tabID, query, start, limit, tag, lerr)
+			return
+		}
 	}
 
 	// EXPLAIN returns rows but cannot be used as a subquery, so it must be

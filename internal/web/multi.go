@@ -45,9 +45,20 @@ func scriptStatements(script string) []string {
 // runStatement executes one statement and collects up to limit rows. It
 // returns the result set, the rows touched (returned or affected) and the time
 // spent turning values into strings (not database time).
-func runStatement(ctx context.Context, conn *pgxpool.Conn, n int, stmt string, limit int) (resultSet, int64, time.Duration, error) {
+func runStatement(ctx context.Context, conn *pgxpool.Conn, n int, stmt string, limit int, intercept func(string) (string, bool, error)) (resultSet, int64, time.Duration, error) {
 	set := resultSet{Label: fmt.Sprintf("%d · %s", n, firstKeyword(stmt))}
 	var formatTime time.Duration
+
+	// LISTEN/UNLISTEN run on the tab's dedicated listener connection.
+	if intercept != nil {
+		if tag, ok, err := intercept(stmt); ok {
+			set.Message = tag
+			if err != nil {
+				set.Message, set.IsError = err.Error(), true
+			}
+			return set, 0, 0, err
+		}
+	}
 
 	rows, err := conn.Query(ctx, stmt)
 	if err != nil {
@@ -98,7 +109,7 @@ func runStatement(ctx context.Context, conn *pgxpool.Conn, n int, stmt string, l
 }
 
 // renderMulti runs a multi-statement script and renders its result sets.
-func (s *Server) renderMulti(w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, stmts []string, serverID int64, dbName, tabID, script string, limit int, notices *noticeSink, start time.Time) {
+func (s *Server) renderMulti(w http.ResponseWriter, r *http.Request, conn *pgxpool.Conn, stmts []string, serverID int64, dbName, tabID, script string, limit int, notices *noticeSink, intercept func(string) (string, bool, error), start time.Time) {
 	sets := make([]resultSet, 0, len(stmts))
 	var touched int64
 	var formatTime time.Duration
@@ -106,7 +117,7 @@ func (s *Server) renderMulti(w http.ResponseWriter, r *http.Request, conn *pgxpo
 	failedAt := 0
 
 	for i, stmt := range stmts {
-		set, n, ft, err := runStatement(r.Context(), conn, i+1, stmt, limit)
+		set, n, ft, err := runStatement(r.Context(), conn, i+1, stmt, limit, intercept)
 		sets = append(sets, set)
 		touched += n
 		formatTime += ft
@@ -129,12 +140,13 @@ func (s *Server) renderMulti(w http.ResponseWriter, r *http.Request, conn *pgxpo
 	}
 
 	RenderPartial(w, "query_multi.html", map[string]any{
-		"Sets":    sets,
-		"Total":   touched,
-		"Limit":   limit,
-		"Elapsed": elapsed,
-		"Message": message,
-		"IsError": failed != nil,
-		"Notices": notices.JSON(),
+		"Sets":      sets,
+		"Total":     touched,
+		"Limit":     limit,
+		"Elapsed":   elapsed,
+		"Message":   message,
+		"IsError":   failed != nil,
+		"Notices":   notices.JSON(),
+		"Listening": listenerFor(tabID) != nil,
 	})
 }

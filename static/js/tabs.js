@@ -336,6 +336,7 @@ function executeQuery(btn, page) {
 
             logMessage(panel, "info", "Query executed in " + elapsed + "s");
             applyNotices(panel, data.notices);
+            if (data.listening === "true") startListenStream(panel);
 
             if (message) {
                 if (status) status.textContent = message + " — " + elapsed + "s";
@@ -859,6 +860,7 @@ function closeTab(id, e) {
     if (panel) panel.remove();
     delete tabMeta[id];
     txCloseTab(id);
+    listenCloseTab(id);
 
     const ctrl = runningQueriesByTab[id];
     if (ctrl) {

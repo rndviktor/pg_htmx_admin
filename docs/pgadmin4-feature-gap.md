@@ -187,9 +187,15 @@ that is missing, ordered by priority.
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
 - ~~**P2.2.** **Backup & Restore**~~ — **done**; see "What this app already
   has" above.
-- **P2.3.** **Query tool power features** — remaining: async `LISTEN` /
-  `NOTIFY` streaming and server-side result cursors (paging today is
-  `LIMIT`/`OFFSET`, re-running the query per page). Done so far: **multiple
+- **P2.3.** **Query tool power features** — remaining: server-side
+  result cursors (paging today is `LIMIT`/`OFFSET`, re-running the query
+  per page). Done so far: **live LISTEN / NOTIFY** (typing `LISTEN channel`
+  in a tab opens a dedicated listener connection outside the pool, and
+  notifications stream into the Notifications tab over server-sent events
+  until `UNLISTEN`, tab close, server or database disconnect, or 30 minutes
+  without a watching browser; at most 10 listening tabs; `LISTEN` inside an
+  open transaction takes effect immediately, not at commit;
+  `internal/web/listen.go`, `static/js/listen.js`), **multiple
   result sets** (a script with several statements runs them in order on the
   tab's connection and shows one result tab per statement; it stops at the
   first error, and each set is capped at the page limit because scripts are

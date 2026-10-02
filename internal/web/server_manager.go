@@ -235,6 +235,7 @@ func (s *Server) dropServerPools(id int64) {
 	// Open transactions pin pool connections and pool.Close waits for every
 	// connection to be returned, so end them first.
 	releaseSessions(id, "")
+	closeListeners(id, "")
 	mu.Lock()
 	if p := dbPools[id]; p != nil {
 		delete(dbPools, id)
@@ -261,6 +262,7 @@ func (s *Server) dropServerPools(id int64) {
 // dropDatabasePool closes and removes the cached pool of a single database.
 func (s *Server) dropDatabasePool(id int64, database string) {
 	releaseSessions(id, database) // see dropServerPools
+	closeListeners(id, database)
 	mu.Lock()
 	key := dbPoolKey{ServerID: id, Database: database}
 	if p := dbSpecificPools[key]; p != nil {
