@@ -235,7 +235,7 @@ function initContextMenu() {
             sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[10rem]";
             [["Database", "database"], ["Role", "role"], ["Tablespace", "tablespace"]].forEach((entry) => {
                 const item = menuItem(entry[0], false);
-                item.addEventListener("click", () => openCreateDDLDialog(entry[1], nodeURL, ""));
+                item.addEventListener("click", () => openDDLPanel("create", entry[1], nodeURL, "", ""));
                 sub.appendChild(item);
             });
             row.append(trigger, sub);
@@ -252,7 +252,7 @@ function initContextMenu() {
 
                 const createItem = menuItem(label, false);
                 createItem.addEventListener("click", () => {
-                    openCreateDDLDialog(kind, nodeURL, ddlFolderID(el, true));
+                    openDDLPanel("create", kind, nodeURL, "", ddlFolderID(el, true));
                 });
                 menu.appendChild(createItem);
             }
@@ -278,7 +278,7 @@ function initContextMenu() {
             dropItem.addEventListener("click", () => {
                 const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
                 const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openDropDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
+                openDDLPanel("drop", kind, nodeURL, name, ddlFolderID(el, false));
             });
             menu.appendChild(dropItem);
 
@@ -311,10 +311,7 @@ function initContextMenu() {
             alterItem.addEventListener("click", () => {
                 const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
                 const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                // Tables alter inside a script-tab side panel (alter-table.js);
-                // openAlterDDLDialog stays as the dialog for the other kinds.
-                if (kind === "table") openAlterTableTab(nodeURL, name, ddlFolderID(el, false));
-                else openAlterDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
+                openDDLPanel("alter", kind, nodeURL, name, ddlFolderID(el, false));
             });
             menu.appendChild(alterItem);
         }
@@ -339,7 +336,7 @@ function initContextMenu() {
         }
 
         const maintSubmenu = (entries) => submenu("Maintenance", entries,
-            (entry) => openMaintDialog(entry[1], nodeURL, entry[2]));
+            (entry) => openMaintPanel(entry[1], nodeURL, entry[2]));
         const backupSubmenu = (entries) => submenu("Backup / Restore", entries,
             (entry) => {
                 if (entry[1] === "storage") openStorageManager();
@@ -384,13 +381,13 @@ function initContextMenu() {
             const item = menuItem("Reindex Index", false);
             item.addEventListener("click", () => {
                 const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openMaintDialog("reindex", nodeURL, { reindex_target: "index", name });
+                openMaintPanel("reindex", nodeURL, { reindex_target: "index", name });
             });
             menu.appendChild(item);
         } else if (currentMenuKind === "schema") {
             menu.appendChild(divider());
             const item = menuItem("Reindex Schema", false);
-            item.addEventListener("click", () => openMaintDialog("reindex", nodeURL, { reindex_target: "schema" }));
+            item.addEventListener("click", () => openMaintPanel("reindex", nodeURL, { reindex_target: "schema" }));
             menu.appendChild(item);
         }
 

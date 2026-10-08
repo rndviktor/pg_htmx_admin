@@ -1,0 +1,37 @@
+<div id="ddl-panel-{{ .PanelID }}" class="ddl-panel" data-panel-id="{{ .PanelID }}" data-preview="{{ .PreviewURL }}" data-action="{{ .Action }}" data-folder="{{ .FolderID }}" data-db="{{ .ConnDB }}">
+    <div class="flex justify-between items-center px-4 py-2 border-b border-gray-700">
+        <h3 class="text-sm font-bold text-white">{{ .Title }}</h3>
+        <div class="flex items-center gap-2">
+            <button type="button" data-panel-reset class="px-2 py-1 text-xs text-gray-300 hover:text-white border border-gray-600 rounded" title="Reload the form from the current definition (use after running the SQL)">Reset</button>
+            <button type="button" data-panel-collapse class="px-2 py-1 text-sm text-gray-300 hover:text-white border border-gray-600 rounded" title="Hide this panel">&lt;&lt;</button>
+        </div>
+    </div>
+    <div data-panel-status class="hidden px-4 py-1 text-xs text-yellow-400"></div>
+    {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 m-3">{{ .Error }}</div>{{ end }}
+
+    <form class="space-y-4 p-4" onsubmit="return false">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="folder_id" value="{{ .FolderID }}">
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Name</label>
+                <input type="text" name="name" required placeholder="fast_ssd" value="{{ index .Values "name" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                       autocomplete="off" spellcheck="false">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Owner</label>
+                <select name="owner" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                    <option value="">(default)</option>
+                    {{ range (index .Dropdowns "roles") }}<option value="{{ . }}" {{ if eq . (index $.Values "owner") }}selected{{ end }}>{{ . }}</option>{{ end }}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Location</label>
+                <input type="text" name="location" required placeholder="/var/lib/postgresql/data/fast_ssd"
+                       value="{{ index .Values "location" }}"
+                       class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm font-mono"
+                       autocomplete="off" spellcheck="false">
+            </div>
+    </form>
+</div>

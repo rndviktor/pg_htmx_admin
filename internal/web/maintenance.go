@@ -139,7 +139,7 @@ func buildReindex(v map[string]string) (string, error) {
 	return stmt + " " + target + " " + name, nil
 }
 
-// maintModalData is the view model for the shared maintenance modal partial.
+// maintModalData is the view model for the shared maintenance panel partial.
 type maintModalData struct {
 	Op            string
 	OpLabel       string
@@ -154,16 +154,50 @@ type maintModalData struct {
 	// index" dropdown.
 	Indexes []string
 	Error   string
+	// Side-panel fields (see ddlModalData): the panel id, header, live-SQL
+	// endpoint and the database the script tab runs the SQL on.
+	PanelID    string
+	Title      string
+	PreviewURL string
+	ConnDB     string
+	Action     string
+	FolderID   string
 }
 
-func (s *Server) renderMaintModal(w http.ResponseWriter, m maintModalData) {
+func (s *Server) renderMaintPanel(w http.ResponseWriter, m maintModalData) {
 	if m.Values == nil {
 		m.Values = map[string]string{}
 	}
 	if op, ok := maintOps[m.Op]; ok {
 		m.OpLabel = op.Label
 	}
-	RenderPartial(w, "maint_modal.html", m)
+	m.Action = "maint"
+	m.PreviewURL = "/api/maint/" + m.Op + "/preview"
+	m.Title = m.OpLabel + " " + maintTargetLabel(m.Op, m.Values["target"], m.ReindexTarget)
+	m.ConnDB = m.DB
+	RenderPartial(w, "maint_panel.html", m)
+}
+
+// maintTargetLabel names what the operation runs against, for the panel header.
+func maintTargetLabel(op, target, reindexTarget string) string {
+	switch op {
+	case "vacuum", "analyze":
+		if target == "table" {
+			return "Table"
+		}
+		return "Database"
+	case "cluster":
+		return "Table"
+	}
+	switch reindexTarget {
+	case "table":
+		return "Table"
+	case "index":
+		return "Index"
+	case "schema":
+		return "Schema"
+	}
+	return "Database"
 }
 
 // clusterIndexes fetches the target table's index names for the Cluster
@@ -183,10 +217,10 @@ func (s *Server) clusterIndexes(ctx context.Context, sid int64, dbName, schema, 
 	return indexes
 }
 
-func (s *Server) handleMaintModal(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMaintPanel(w http.ResponseWriter, r *http.Request) {
 	op := chi.URLParam(r, "op")
 	if _, ok := maintOps[op]; !ok {
-		log.Printf("Maintenance modal: unknown op %q on %s", op, r.URL.Path)
+		log.Printf("Maintenance panel: unknown op %q on %s", op, r.URL.Path)
 		http.Error(w, "Unknown maintenance operation", http.StatusNotFound)
 		return
 	}
@@ -199,6 +233,12 @@ func (s *Server) handleMaintModal(w http.ResponseWriter, r *http.Request) {
 	reindexTarget := r.URL.Query().Get("reindex_target")
 	name := r.URL.Query().Get("name")
 
+	panelID := r.URL.Query().Get("panel_id")
+	if !panelIDPattern.MatchString(panelID) {
+		http.Error(w, "Invalid panel id", http.StatusBadRequest)
+		return
+	}
+
 	var indexes []string
 	if op == "cluster" {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -206,7 +246,8 @@ func (s *Server) handleMaintModal(w http.ResponseWriter, r *http.Request) {
 		indexes = s.clusterIndexes(ctx, sid, dbName, schema, table)
 	}
 
-	s.renderMaintModal(w, maintModalData{
+	s.renderMaintPanel(w, maintModalData{
+		PanelID:       panelID,
 		Op:            op,
 		ServerID:      sid,
 		DB:            dbName,
@@ -219,8 +260,8 @@ func (s *Server) handleMaintModal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleMaintPreview re-renders the SQL preview panel from the current form
-// values, reusing the DDL dialogs' preview partial.
+// handleMaintPreview renders the SQL for the current form values, reusing the
+// DDL preview partial.
 func (s *Server) handleMaintPreview(w http.ResponseWriter, r *http.Request) {
 	op := chi.URLParam(r, "op")
 	o, ok := maintOps[op]
@@ -240,79 +281,4 @@ func (s *Server) handleMaintPreview(w http.ResponseWriter, r *http.Request) {
 		contents = "Error: " + err.Error()
 	}
 	RenderPartial(w, "ddl_preview.html", map[string]any{"Contents": contents})
-}
-
-func (s *Server) handleMaintRun(w http.ResponseWriter, r *http.Request) {
-	op := chi.URLParam(r, "op")
-	o, ok := maintOps[op]
-	if !ok {
-		log.Printf("Maintenance run: unknown op %q on %s", op, r.URL.Path)
-		http.Error(w, "Unknown maintenance operation", http.StatusNotFound)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		log.Printf("Maintenance run: invalid form data: %v", err)
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
-		return
-	}
-
-	sid, err := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
-	dbName := r.FormValue("db")
-	schema := r.FormValue("schema")
-	table := r.FormValue("table")
-	reindexTarget := r.FormValue("reindex_target")
-	name := r.FormValue("name")
-
-	rerender := func(errMsg string) {
-		var indexes []string
-		if op == "cluster" {
-			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			indexes = s.clusterIndexes(ctx, sid, dbName, schema, table)
-			cancel()
-		}
-		s.renderMaintModal(w, maintModalData{
-			Op: op, ServerID: sid, DB: dbName, Schema: schema, Table: table,
-			ReindexTarget: reindexTarget, Name: name,
-			Values: formValues(r.Form), Indexes: indexes, Error: errMsg,
-		})
-	}
-
-	if err != nil || sid < 1 {
-		log.Printf("Maintenance run %s: missing or invalid server_id %q", op, r.FormValue("server_id"))
-		rerender("Missing or invalid server id.")
-		return
-	}
-	if s.isDisconnected(sid) {
-		log.Printf("Maintenance run %s: server %d is disconnected", op, sid)
-		rerender("Server is disconnected. Reconnect it first.")
-		return
-	}
-
-	// Vacuum/Reindex/Cluster can run long on large tables; give them room
-	// beyond the DDL dialogs' short create/alter timeout.
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-	defer cancel()
-
-	pool, perr := s.getOrCreateDbPool(ctx, sid, dbName)
-	if perr != nil {
-		log.Printf("Maintenance run %s: cannot reach target database: %v", op, perr)
-		rerender("Cannot reach the target database: " + perr.Error())
-		return
-	}
-
-	sqlStr, err := o.Build(formValues(r.Form))
-	if err != nil {
-		log.Printf("Maintenance run %s: build error: %v", op, err)
-		rerender(err.Error())
-		return
-	}
-
-	tag, err := runDDLOn(ctx, pool, []string{sqlStr})
-	if err != nil {
-		log.Printf("Maintenance run %s failed: %v", op, err)
-		rerender("Execution failed: " + err.Error())
-		return
-	}
-
-	RenderPartial(w, "maint_success.html", map[string]any{"Message": tag})
 }

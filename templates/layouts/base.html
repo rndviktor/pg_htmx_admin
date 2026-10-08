@@ -117,10 +117,10 @@
             overflow-y: auto;
         }
 
-        /* Alter Table side panel (alter-table.js): covers the left 70% of a
+        /* DDL side panel (ddl-panel.js): covers the left 70% of a
            script tab below its toolbar (top is set from the toolbar height by
            the script) and slides out to the left when collapsed. */
-        .alter-panel {
+        .ddl-panel {
             position: absolute;
             left: 0;
             top: 46px;
@@ -132,7 +132,7 @@
             border-right: 1px solid #374151;
             transition: transform 0.2s ease, visibility 0s;
         }
-        .alter-panel.collapsed {
+        .ddl-panel.collapsed {
             transform: translateX(-100%);
             visibility: hidden;
             transition: transform 0.2s ease, visibility 0s 0.2s;
@@ -152,7 +152,7 @@
     <script src="/static/js/listen.js"></script>
     <script src="/static/js/properties.js"></script>
     <script src="/static/js/ddl.js"></script>
-    <script src="/static/js/alter-table.js"></script>
+    <script src="/static/js/ddl-panel.js"></script>
     <script src="/static/js/save-dialog.js"></script>
     <script src="/static/js/workspace.js"></script>
     <script src="/static/js/find.js"></script>

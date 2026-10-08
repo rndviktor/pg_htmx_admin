@@ -357,6 +357,7 @@ function executeQuery(btn, page, nav) {
                 logMessage(panel, "success", countLabel + " returned");
             }
             if (data.cursor === "true") refreshTxState(panel);
+            if (!isError && window.ddlPanelAfterRun) ddlPanelAfterRun(panel);
 
             if (totalPages > 1) {
                 pag.classList.remove("hidden");

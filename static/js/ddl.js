@@ -1,5 +1,7 @@
 // -----------------------------------------------------------------------------
-// Create / Drop DDL dialogs for server- and database-scoped object kinds.
+// Shared modal helpers (Backup & Restore, Storage Manager), the DROP Script
+// tab, the tree-refresh listener and the column-row helpers used by the DDL
+// side panels (static/js/ddl-panel.js).
 // -----------------------------------------------------------------------------
 (function () {
     function closeDDL() {
@@ -7,8 +9,7 @@
         if (container) container.innerHTML = "";
     }
 
-    // The modal is always swapped into #modal-container (see
-    // templates/partials/ddl_*.html) and closed with this helper.
+    // Modals are swapped into #modal-container and closed with this helper.
     window.closeDDL = closeDDL;
 
     function openModal(url) {
@@ -50,57 +51,8 @@
     }
     window.ddlFolderID = ddlFolderID;
 
-    // Builds the modal URL from the node's URL context (server/db/schema/table)
-    // plus the refresh target. Server-scoped kinds only need the server id.
-    function modalQuery(action, kind, nodeURL, folderID, name) {
-        const ctx = parseObjectContext(nodeURL);
-        const qs = new URLSearchParams();
-        if (ctx.serverID) qs.set("server_id", ctx.serverID);
-        if (ctx.dbName) qs.set("db", ctx.dbName);
-        if (ctx.schema) qs.set("schema", ctx.schema);
-        if (ctx.table) qs.set("table", ctx.table);
-        qs.set("folder_id", folderID || (ctx.serverID ? "server-" + ctx.serverID : ""));
-        qs.set("action", action);
-        if (name) qs.set("name", name);
-        return qs;
-    }
-
-    window.openCreateDDLDialog = function (kind, nodeURL, folderID) {
-        const qs = modalQuery("create", kind, nodeURL, folderID);
-        if (!qs.get("server_id")) return;
-        openModal("/api/ddl/" + kind + "/modal?" + qs.toString());
-    };
-
-    window.openDropDDLDialog = function (kind, nodeURL, name, folderID) {
-        const qs = modalQuery("drop", kind, nodeURL, folderID, name || "");
-        if (!qs.get("server_id")) return;
-        openModal("/api/ddl/" + kind + "/modal?" + qs.toString());
-    };
-
-    window.openAlterDDLDialog = function (kind, nodeURL, name, folderID) {
-        const qs = modalQuery("alter", kind, nodeURL, folderID, name || "");
-        if (!qs.get("server_id")) return;
-        openModal("/api/ddl/" + kind + "/modal?" + qs.toString());
-    };
-
-    // Maintenance dialogs (Vacuum/Analyze/Cluster/Reindex): fixed verbs
-    // against the node's own context, not an object create/drop/alter, so
-    // they skip modalQuery's action/folder_id/name defaults and take their
-    // op-specific fixed fields (target, reindex_target, name) via `extra`.
-    window.openMaintDialog = function (op, nodeURL, extra) {
-        const ctx = parseObjectContext(nodeURL);
-        const qs = new URLSearchParams();
-        if (ctx.serverID) qs.set("server_id", ctx.serverID);
-        if (ctx.dbName) qs.set("db", ctx.dbName);
-        if (ctx.schema) qs.set("schema", ctx.schema);
-        if (ctx.table) qs.set("table", ctx.table);
-        Object.keys(extra || {}).forEach((k) => { if (extra[k]) qs.set(k, extra[k]); });
-        if (!qs.get("server_id")) return;
-        openModal("/api/maint/" + op + "/modal?" + qs.toString());
-    };
-
     // Backup & Restore dialogs (pg_dump / pg_dumpall / pg_restore) take the
-    // node's server/db/schema/table context, like the maintenance dialogs.
+    // node's server/db/schema/table context.
     window.openBackupDialog = function (op, nodeURL) {
         const ctx = parseObjectContext(nodeURL);
         const qs = new URLSearchParams();
@@ -117,7 +69,7 @@
 
     // "DROP Script": fetches the DROP SQL for any droppable object kind and
     // opens it in a read-only script tab, without running it (unlike
-    // openDropDDLDialog, which opens the preview-then-run modal).
+    // the Drop side panel, which builds the statement from a form).
     window.openDropScriptTab = function (kind, nodeURL, name) {
         const ctx = parseObjectContext(nodeURL);
         if (!ctx.serverID || !name) return;
@@ -168,10 +120,9 @@
         row.remove();
     };
 
-    // After a successful create/drop the backend responds with an
-    // HX-Trigger: {"ddl-refresh": "<tree container id>"}. Re-fetch that tree
-    // container's node (folders stay expanded, refreshed in place), then close
-    // the modal after a short delay so the command tag stays visible.
+    // After a DDL panel's SQL ran (ddl-panel.js) the "ddl-refresh" event
+    // carries the tree container id to re-fetch (folders stay expanded and are
+    // refreshed in place).
     document.addEventListener("ddl-refresh", (e) => {
         const folderID = e.detail && e.detail.value;
         if (folderID) {
@@ -188,6 +139,5 @@
                 if (container) container.innerHTML = "";
             }
         }
-        setTimeout(closeDDL, 1600);
     });
 })();

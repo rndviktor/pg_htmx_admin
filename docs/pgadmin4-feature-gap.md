@@ -93,17 +93,21 @@ that is missing, ordered by priority.
   tables again rather than only user-defined `CREATE TYPE` composites/enums/
   ranges — clicking one still opens a correct (if misleadingly-labeled)
   Composite panel showing that table's columns.
-- **Alter Table side panel**: "Alter Table" no longer opens a modal; it opens a script tab whose
-  left 70% is a panel with the Alter Table form components (owner, columns, add
-  columns, foreign key, exclusion, attach/detach partition). Any change
-  re-generates the ALTER SQL live into the tab's editor (via the shared
-  `POST /api/ddl/table/preview`), the tab's Run executes it, `<<` slides the panel
-  away and `>>` in the toolbar brings it back, Reset reloads the table's current
-  definition (`internal/web/alter_panel.go`, `templates/partials/alter_table_panel.html`,
-  `static/js/alter-table.js`). The old modal (`openAlterDDLDialog`,
-  `ddl_alter_modal.html`) is kept as a legacy example and still serves the other
-  object kinds. Not yet: the tree is not refreshed after the ALTER runs.
-- **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
+- **DDL side panels**: the Create / Drop / Alter forms for every object kind
+  and the Maintenance operations (Vacuum / Analyze / Cluster / Reindex) no
+  longer open popups. Each opens a script tab whose left 70% is a panel with
+  the form components; any change re-generates the SQL live into the tab's
+  editor (the server-side builders behind `POST /api/ddl/{kind}/preview` and
+  `/api/maint/{op}/preview`), the tab's Run executes it and refreshes the
+  tree (and reloads an Alter form against the new definition), `<<` slides the
+  panel away and `>>` in the toolbar brings it back, Reset reloads the form.
+  Server-level objects (database, role, tablespace) run on the server's
+  maintenance database. Backup / Restore, Storage Manager, Add Server and Save
+  Script remain modals (`internal/web/ddl.go` `handleDDLPanel`,
+  `internal/web/maintenance.go` `handleMaintPanel`,
+  `templates/partials/ddl_*_panel.html`, `maint_panel.html`,
+  `static/js/ddl-panel.js`).
+- **DDL forms (Create / Drop / Alter)**: form-based generate-then-preview-then-run (now shown in the side panels above)
   for 15 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index,
   trigger, rule and RLS policy — plus a Create Table dialog with columns
