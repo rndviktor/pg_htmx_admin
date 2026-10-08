@@ -116,6 +116,27 @@
             max-height: 90vh;
             overflow-y: auto;
         }
+
+        /* Alter Table side panel (alter-table.js): covers the left 70% of a
+           script tab below its toolbar (top is set from the toolbar height by
+           the script) and slides out to the left when collapsed. */
+        .alter-panel {
+            position: absolute;
+            left: 0;
+            top: 46px;
+            bottom: 0;
+            width: 70%;
+            z-index: 30;
+            overflow-y: auto;
+            background: #111827;
+            border-right: 1px solid #374151;
+            transition: transform 0.2s ease, visibility 0s;
+        }
+        .alter-panel.collapsed {
+            transform: translateX(-100%);
+            visibility: hidden;
+            transition: transform 0.2s ease, visibility 0s 0.2s;
+        }
     </style>
 
     <!-- Application scripts (split by purpose; see static/js/*.js) -->
@@ -131,6 +152,7 @@
     <script src="/static/js/listen.js"></script>
     <script src="/static/js/properties.js"></script>
     <script src="/static/js/ddl.js"></script>
+    <script src="/static/js/alter-table.js"></script>
     <script src="/static/js/save-dialog.js"></script>
     <script src="/static/js/workspace.js"></script>
     <script src="/static/js/find.js"></script>

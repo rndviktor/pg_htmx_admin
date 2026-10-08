@@ -93,6 +93,16 @@ that is missing, ordered by priority.
   tables again rather than only user-defined `CREATE TYPE` composites/enums/
   ranges — clicking one still opens a correct (if misleadingly-labeled)
   Composite panel showing that table's columns.
+- **Alter Table side panel**: "Alter Table" no longer opens a modal; it opens a script tab whose
+  left 70% is a panel with the Alter Table form components (owner, columns, add
+  columns, foreign key, exclusion, attach/detach partition). Any change
+  re-generates the ALTER SQL live into the tab's editor (via the shared
+  `POST /api/ddl/table/preview`), the tab's Run executes it, `<<` slides the panel
+  away and `>>` in the toolbar brings it back, Reset reloads the table's current
+  definition (`internal/web/alter_panel.go`, `templates/partials/alter_table_panel.html`,
+  `static/js/alter-table.js`). The old modal (`openAlterDDLDialog`,
+  `ddl_alter_modal.html`) is kept as a legacy example and still serves the other
+  object kinds. Not yet: the tree is not refreshed after the ALTER runs.
 - **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
   for 15 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index,

@@ -149,6 +149,9 @@ type ddlModalData struct {
 	// rerender-with-error so the choice survives a failed submit.
 	FKRefColumns      []string
 	FKRefColsSelected []string
+	// PanelID makes the element ids of the Alter Table side panel unique per
+	// script tab (alter_table_panel.html); empty for the modal dialogs.
+	PanelID string
 }
 
 // existingColumn is one row of the Alter Table dialog's per-column edit/drop

@@ -311,7 +311,10 @@ function initContextMenu() {
             alterItem.addEventListener("click", () => {
                 const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
                 const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openAlterDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
+                // Tables alter inside a script-tab side panel (alter-table.js);
+                // openAlterDDLDialog stays as the dialog for the other kinds.
+                if (kind === "table") openAlterTableTab(nodeURL, name, ddlFolderID(el, false));
+                else openAlterDDLDialog(kind, nodeURL, name, ddlFolderID(el, false));
             });
             menu.appendChild(alterItem);
         }

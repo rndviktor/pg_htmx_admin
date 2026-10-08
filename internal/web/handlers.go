@@ -88,6 +88,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/ddl/{kind}/alter", s.handleDDLAlter)
 		r.Get("/api/ddl/{kind}/drop-script", s.handleDDLDropScript)
 		r.Get("/api/ddl/table/fk-ref-columns", s.handleDDLFKRefColumns)
+		r.Get("/api/ddl/table/alter-panel", s.handleAlterTablePanel)
 
 		r.Get("/api/maint/{op}/modal", s.handleMaintModal)
 		r.Post("/api/maint/{op}/preview", s.handleMaintPreview)
