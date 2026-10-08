@@ -1244,6 +1244,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lastPage := r.FormValue("page") == "last" // cursor mode: jump to the end
 	page, _ := strconv.Atoi(r.FormValue("page"))
 	if page < 1 {
 		page = 1
@@ -1298,6 +1299,15 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// (listen.go); everything else runs on the tab's connection.
 	intercept := listenIntercept(r.Context(), tabID, pool, serverID, dbName)
 	stmts := scriptStatements(query)
+
+	// Cursor mode (cursor.go) pages one row-returning statement through a
+	// server-side cursor. Any run that is not a page of the open cursor's own
+	// query closes it first, so nothing else runs inside its transaction.
+	wantCursor := r.FormValue("cursor") == "on" && len(stmts) == 1 && isRowReturning(query) && !isExplain(query)
+	if cs := cursorFor(tabID, conn); cs != nil && !(wantCursor && r.FormValue("nav") == "on" && cs.query == query) {
+		endCursor(conn, tabID, cs)
+	}
+
 	if len(stmts) > 1 {
 		s.renderMulti(w, r, conn, stmts, serverID, dbName, tabID, query, limit, notices, intercept, start)
 		return
@@ -1307,6 +1317,10 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			s.renderCommandResult(w, r, serverID, dbName, tabID, query, start, limit, tag, lerr)
 			return
 		}
+	}
+	if wantCursor {
+		s.renderCursorPage(w, r, conn, pool, tabID, query, page, limit, lastPage, serverID, dbName, notices, start)
+		return
 	}
 
 	// EXPLAIN returns rows but cannot be used as a subquery, so it must be

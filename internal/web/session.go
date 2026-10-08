@@ -218,10 +218,16 @@ func releaseSessions(serverID int64, dbName string) {
 func startSessionJanitor() {
 	go func() {
 		for range time.Tick(time.Minute) {
-			cutoff := time.Now().Add(-txIdleTimeout)
-			endSessions(takeSessions(func(_ string, s *tabSession) bool {
-				return s.lastUsed.Before(cutoff)
-			}, false), "The transaction was rolled back after "+txIdleTimeout.String()+" of inactivity.")
+			now := time.Now()
+			// takeSessions calls match under sessMu, which also guards cursors.
+			endSessions(takeSessions(func(id string, s *tabSession) bool {
+				limit := txIdleTimeout
+				if cursors[id] != nil && cursorIdleTimeout < limit {
+					limit = cursorIdleTimeout // an idle cursor holds a snapshot
+				}
+				return s.lastUsed.Before(now.Add(-limit))
+			}, false), "The transaction was rolled back after a period of inactivity ("+
+				txIdleTimeout.String()+", or "+cursorIdleTimeout.String()+" with an open cursor).")
 		}
 	}()
 }
