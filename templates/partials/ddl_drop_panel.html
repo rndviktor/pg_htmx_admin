@@ -1,15 +1,16 @@
-<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
-     onclick="if (event.target === this) closeDDL()">
-    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl modal-panel w-full max-w-md p-6">
-        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
-            <h3 class="text-lg font-bold text-white">Drop - {{ .KindLabel }}</h3>
-            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+<div id="ddl-panel-{{ .PanelID }}" class="ddl-panel" data-action="{{ .Action }}" data-folder="{{ .FolderID }}" data-db="{{ .ConnDB }}">
+    <div class="flex justify-between items-center px-4 py-2 border-b border-gray-700">
+        <h3 class="text-sm font-bold text-white">{{ .Title }}</h3>
+        <div class="flex items-center gap-2">
+            <button type="button" data-panel-reset hx-get="{{ .ResetURL }}" hx-target="#ddl-panel-{{ .PanelID }}" hx-swap="outerHTML" class="px-2 py-1 text-xs text-gray-300 hover:text-white border border-gray-600 rounded" title="Reload the form from the current definition (use after running the SQL)">Reset</button>
+            <button type="button" data-panel-toggle class="px-2 py-1 text-sm text-gray-300 hover:text-white border border-gray-600 rounded" title="Hide this panel">&lt;&lt;</button>
         </div>
+    </div>
+    <div id="ddl-out-{{ .PanelID }}" class="ddl-out"></div>
+    {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 m-3">{{ .Error }}</div>{{ end }}
 
-        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
-
-        <form hx-post="/api/ddl/{{ .Kind }}/drop" hx-target="#modal-container" hx-swap="innerHTML"
-              hx-disabled-elt="button[type='submit']" class="space-y-4">
+    <form hx-post="{{ .PreviewURL }}" hx-trigger="{{ if ne .Action "create" }}load, {{ end }}input changed delay:400ms, change, panel-changed" hx-target="#ddl-out-{{ .PanelID }}" hx-sync="this:replace" class="space-y-4 p-4" onsubmit="return false">
+            <input type="hidden" name="mode" value="drop">
             <input type="hidden" name="server_id" value="{{ .ServerID }}">
             <input type="hidden" name="folder_id" value="{{ .FolderID }}">
             <input type="hidden" name="db" value="{{ .DB }}">
@@ -38,12 +39,5 @@
             {{ end }}
 
             <p class="text-xs text-gray-500">This cannot be undone. Dependent objects may block the drop.</p>
-
-            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
-                <button type="button" onclick="closeDDL()"
-                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
-                <button type="submit" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-sm font-medium">Drop {{ .KindLabel }}</button>
-            </div>
-        </form>
-    </div>
+    </form>
 </div>

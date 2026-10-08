@@ -67,8 +67,31 @@ function destroyCharts() {
     charts = {};
 }
 
+// Chart.js (static/vendor/chart.bundle.js, ~170 KB) is only fetched the first
+// time the dashboard draws a chart, not on every page load.
+let chartLib = null;
 function renderMonitoringCharts() {
-    const labels = chartSeries.time;
+    // The status dot and KPI cards are static markup; charts (and the library)
+    // are only needed while the Dashboard tab is showing.
+    if (activeTabId !== TAB_DASHBOARD) return;
+    if (window.Chart) { drawMonitoringCharts(); return; }
+    if (!chartLib) {
+        chartLib = new Promise((resolve, reject) => {
+            const s = document.createElement("script");
+            s.type = "module";
+            s.src = "/static/vendor/chart.bundle.js";
+            s.onload = resolve;
+            s.onerror = () => { chartLib = null; reject(new Error("chart.js failed to load")); };
+            document.head.appendChild(s);
+        });
+    }
+    chartLib.then(() => {
+        // The user may have left the Dashboard tab while the library loaded.
+        if (window.Chart && activeTabId === TAB_DASHBOARD) drawMonitoringCharts();
+    }).catch(() => {});
+}
+
+function drawMonitoringCharts() {
 
     // Cache hit ratio (line, %) — computed from cumulative hits/reads deltas.
     upsertChart("chart-cache-hit", [{

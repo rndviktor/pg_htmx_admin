@@ -1,0 +1,28 @@
+{{ if eq .Variant "create" }}<div data-col-row class="ddl-col-row">
+    <input type="text" name="col_name" placeholder="column" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Column name">
+    <input type="text" name="col_type" list="ddl-coltypes-{{ .PanelID }}" placeholder="text" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Data type">
+    <select name="col_nullable" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Nullable">
+        <option value="YES" selected>NULL</option>
+        <option value="NO">NOT NULL</option>
+    </select>
+    <input type="text" name="col_default" placeholder="default" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+    <input type="text" name="col_generated" placeholder="generated as" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Generated column expression (STORED)">
+    <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
+        <option value="" selected>-</option>
+        <option value="pk">PK</option>
+        <option value="uniq">UQ</option>
+    </select>
+    <button type="button" hx-get="/api/ddl/table/column-row?variant=remove" hx-target="closest [data-col-row]" hx-swap="outerHTML"
+                class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
+</div>{{ else }}<div data-col-row class="ddl-addcol-row">
+    <input type="text" name="add_col_name" placeholder="column" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Column name">
+    <input type="text" name="add_col_type" list="alt-coltypes-{{ .PanelID }}" placeholder="text" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Data type">
+    <select name="add_col_nullable" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Nullable">
+        <option value="YES" selected>NULL</option>
+        <option value="NO">NOT NULL</option>
+    </select>
+    <input type="text" name="add_col_default" placeholder="default" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
+    <input type="text" name="add_col_generated" placeholder="generated as" autocomplete="off" spellcheck="false" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Generated column expression (STORED)">
+    <button type="button" hx-get="/api/ddl/table/column-row?variant=remove" hx-target="closest [data-col-row]" hx-swap="outerHTML"
+                class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
+</div>{{ end }}

@@ -1,0 +1,24 @@
+<div class="xp-view">
+<input type="radio" name="xp-{{ .Group }}" class="xp-radio xp-r-tree" id="xp-{{ .Group }}-tree" checked>
+<input type="radio" name="xp-{{ .Group }}" class="xp-radio xp-r-table" id="xp-{{ .Group }}-table">
+<input type="radio" name="xp-{{ .Group }}" class="xp-radio xp-r-raw" id="xp-{{ .Group }}-raw">
+<div class="xp-tabs">
+  <label for="xp-{{ .Group }}-tree" class="xp-tab xp-t-tree">Tree</label>
+  <label for="xp-{{ .Group }}-table" class="xp-tab xp-t-table">Table</label>
+  <label for="xp-{{ .Group }}-raw" class="xp-tab xp-t-raw">Raw JSON</label>
+</div>
+<div class="xp-body xp-p-tree">{{ template "xp_node" .Root }}</div>
+<div class="xp-body xp-p-table">
+<table class="xp-table">
+<tr><th>Node</th><th>{{ .MetricName }}</th><th>%</th><th>Rows</th><th>Loops</th><th>Flags</th></tr>
+{{ range .Table }}<tr><td>{{ .Label }}</td><td>{{ .MetricText }}</td><td>{{ .PctText }}</td><td>{{ .RowsText }}</td><td>{{ .LoopsText }}</td><td>{{ .Joined }}</td></tr>
+{{ end }}</table>
+</div>
+<div class="xp-body xp-p-raw"><pre class="xp-raw">{{ .RawJSON }}</pre></div>
+<div class="xp-footer">{{ .Footer }}{{ if .RolledBack }}<div class="xp-note">The statement was executed to collect these timings and then rolled back. Non-transactional effects (sequences, NOTIFY, external calls) are not undone.</div>{{ end }}</div>
+</div>
+{{ define "xp_node" }}<details class="xp-node"{{ if .Open }} open{{ end }}>
+<summary class="xp-row"><span class="xp-toggle"></span><span class="xp-title"><span class="xp-type">{{ .Type }}</span>{{ if .Target }}<span class="xp-target"> {{ .Target }}</span>{{ end }}</span><span class="xp-bar"><span class="xp-bar-fill {{ .BarTier }}" style="width:{{ .BarWidth }}%"></span></span><span class="xp-num">{{ .MetricText }} · {{ .PctRound }}%</span><span class="xp-num xp-rows">{{ .RowsText }}</span><span class="xp-badges">{{ range .Flags }}<span class="xp-badge{{ if eq . "Hotspot" }} xp-badge-hot{{ end }}">{{ . }}</span>{{ end }}</span></summary>
+<details class="xp-more"><summary>details</summary><div class="xp-details"><table class="xp-details-table">{{ range .Details }}<tr><td class="xp-key">{{ .Key }}</td><td class="xp-val">{{ .Value }}</td></tr>{{ end }}</table></div></details>
+{{ range .Children }}{{ template "xp_node" . }}{{ end }}
+</details>{{ end }}

@@ -357,6 +357,7 @@ function executeQuery(btn, page, nav) {
                 logMessage(panel, "success", countLabel + " returned");
             }
             if (data.cursor === "true") refreshTxState(panel);
+            if (!isError && window.ddlPanelAfterRun) ddlPanelAfterRun(panel);
 
             if (totalPages > 1) {
                 pag.classList.remove("hidden");
@@ -475,9 +476,9 @@ function executeExplain(btn, analyze) {
     const t0 = performance.now();
     if (status) status.textContent = keyword + "...";
     fetch("/api/explain", { method: "POST", body })
-        .then((r) => { if (!r.ok) throw r; return r.json(); })
-        .then((payload) => {
-            if (explainPanel) renderExplainPlan(explainPanel, payload);
+        .then((r) => { if (!r.ok) throw r; return r.text(); })
+        .then((html) => {
+            if (explainPanel) explainPanel.innerHTML = html;
             if (status) status.textContent = keyword + " — " + elapsedSeconds(t0) + "s";
             logMessage(panel, "info", keyword + " executed in " + elapsedSeconds(t0) + "s");
 
@@ -489,7 +490,10 @@ function executeExplain(btn, analyze) {
         })
         .catch(async (r) => {
             const msg = r.body ? await r.text() : "Request failed";
-            if (explainPanel) explainPanel.innerHTML = '<div class="p-4 text-red-400 text-sm">' + msg + '</div>';
+            if (explainPanel) {
+                explainPanel.innerHTML = '<div class="p-4 text-red-400 text-sm"></div>';
+                explainPanel.firstChild.textContent = msg;
+            }
             if (status) status.textContent = keyword + " — Error";
             logMessage(panel, "error", keyword + " failed after " + elapsedSeconds(t0) + "s: " + msg);
             const explainTab = panel.querySelector('[data-output-tab="explain"]');

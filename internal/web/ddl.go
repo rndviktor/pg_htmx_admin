@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	dbpkg "htmx-golang-excercise/internal/db"
 	pgdb "htmx-golang-excercise/internal/sqlc/postgres/db"
+	sqlite "htmx-golang-excercise/internal/sqlc/sqlite/db"
 )
 
 // DDL dialogs generate CREATE/DROP/ALTER statements server-side from posted
@@ -149,7 +152,20 @@ type ddlModalData struct {
 	// rerender-with-error so the choice survives a failed submit.
 	FKRefColumns      []string
 	FKRefColsSelected []string
+	// PanelID makes the element ids of a panel unique per script tab; ResetURL
+	// re-fetches the same panel (the Reset button).
+	PanelID  string
+	ResetURL string
+	// Action is "create", "alter" or "drop"; Title, PreviewURL and ConnDB are
+	// filled in by renderDDLPanel for the panel header, live-SQL endpoint and
+	// the database the script tab runs the SQL on.
+	Action     string
+	Title      string
+	PreviewURL string
+	ConnDB     string
 }
+
+var panelIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,40}$`)
 
 // existingColumn is one row of the Alter Table dialog's per-column edit/drop
 // section. The "*Orig" fields are echoed back as hidden inputs so
@@ -1918,49 +1934,6 @@ type ddlError struct {
 
 func (e *ddlError) Error() string { return e.msg }
 
-// runDDLOn executes one or more statements on a dedicated connection. CREATE
-// DATABASE must be its own statement, so statements are executed individually
-// rather than concatenated.
-func runDDLOn(ctx context.Context, pool *pgxpool.Pool, statements []string) (string, error) {
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Release()
-
-	tag := "OK"
-	for _, stmt := range statements {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" {
-			continue
-		}
-		t, err := conn.Exec(ctx, stmt)
-		if err != nil {
-			return "", err
-		}
-		tag = t.String()
-	}
-	return tag, nil
-}
-
-// runDDL executes statements against the server's maintenance database.
-func (s *Server) runDDL(ctx context.Context, serverID int64, statements []string) (string, error) {
-	pool, err := s.getOrCreatePool(ctx, serverID)
-	if err != nil {
-		return "", err
-	}
-	return runDDLOn(ctx, pool, statements)
-}
-
-// runDatabaseDDL executes statements against a specific target database.
-func (s *Server) runDatabaseDDL(ctx context.Context, serverID int64, dbName string, statements []string) (string, error) {
-	pool, err := s.getOrCreateDbPool(ctx, serverID, dbName)
-	if err != nil {
-		return "", err
-	}
-	return runDDLOn(ctx, pool, statements)
-}
-
 // ddlTargetPool returns the pool a kind's DDL should run against: the
 // maintenance database for server-scoped kinds, the target database otherwise.
 func (s *Server) ddlTargetPool(ctx context.Context, kind string, sid int64, dbName string) (*pgxpool.Pool, error) {
@@ -1977,8 +1950,9 @@ func (s *Server) ddlTargetPool(ctx context.Context, kind string, sid int64, dbNa
 	return s.getOrCreatePool(ctx, sid)
 }
 
-// renderDDLModal renders one of the DDL modal partials into #modal-container.
-func (s *Server) renderDDLModal(w http.ResponseWriter, m ddlModalData) {
+// renderDDLPanel renders one of the DDL side-panel partials (ddl_*_panel.html)
+// that a script tab mounts next to its editor (static/js/ddl-panel.js).
+func (s *Server) renderDDLPanel(w http.ResponseWriter, r *http.Request, m ddlModalData) {
 	if m.Values == nil {
 		m.Values = map[string]string{}
 	}
@@ -1990,6 +1964,10 @@ func (s *Server) renderDDLModal(w http.ResponseWriter, m ddlModalData) {
 		m.HasForce = k.HasForce
 		m.HasCascade = k.HasCascade
 	}
+	m.PreviewURL = "/api/ddl/" + m.Kind + "/preview"
+	m.Title = panelTitle(m.Action, m.KindLabel, m.Schema, m.Name)
+	m.ConnDB = s.panelConnDB(r.Context(), m.ServerID, m.DB)
+	m.ResetURL = r.URL.RequestURI()
 	RenderPartial(w, m.Partial, m)
 }
 
@@ -2073,30 +2051,24 @@ func (s *Server) ddlDropdowns(ctx context.Context, kind string, pool *pgxpool.Po
 	return dd, currentUser
 }
 
-// refreshDDLTree emits the HX-Trigger that makes ddl.js re-fetch the tree
-// container id produced by a successful create/drop.
-func (s *Server) refreshDDLTree(w http.ResponseWriter, folderID string) {
-	trigger, err := json.Marshal(map[string]string{"ddl-refresh": folderID})
-	if err != nil {
-		log.Printf("Failed to marshal ddl-refresh trigger: %v", err)
-		return
-	}
-	w.Header().Set("HX-Trigger", string(trigger))
-}
-
-func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDDLPanel(w http.ResponseWriter, r *http.Request) {
 	kind := chi.URLParam(r, "kind")
 	if _, ok := ddlKinds[kind]; !ok {
-		log.Printf("DDL modal: unknown kind %q on %s", kind, r.URL.Path)
+		log.Printf("DDL panel: unknown kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
 		return
 	}
 	if r.URL.Query().Get("action") == "alter" && !ddlKinds[kind].hasAlter() {
-		log.Printf("DDL modal: alter not supported for kind %q on %s", kind, r.URL.Path)
+		log.Printf("DDL panel: alter not supported for kind %q on %s", kind, r.URL.Path)
 		http.Error(w, "Altering this object kind is not supported", http.StatusNotFound)
 		return
 	}
 
+	panelID := r.URL.Query().Get("panel_id")
+	if !panelIDPattern.MatchString(panelID) {
+		http.Error(w, "Invalid panel id", http.StatusBadRequest)
+		return
+	}
 	sid, _ := strconv.ParseInt(r.URL.Query().Get("server_id"), 10, 64)
 	folderID := r.URL.Query().Get("folder_id")
 	db := r.URL.Query().Get("db")
@@ -2104,8 +2076,10 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 	table := r.URL.Query().Get("table")
 
 	if r.URL.Query().Get("action") == "drop" {
-		s.renderDDLModal(w, ddlModalData{
-			Partial:  "ddl_drop_modal.html",
+		s.renderDDLPanel(w, r, ddlModalData{
+			Partial:  "ddl_drop_panel.html",
+			Action:   "drop",
+			PanelID:  panelID,
 			Kind:     kind,
 			ServerID: sid,
 			FolderID: folderID,
@@ -2148,8 +2122,10 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 				existingCols = s.tableExistingColumns(ctx, pool, schema, name)
 			}
 		}
-		s.renderDDLModal(w, ddlModalData{
-			Partial:         "ddl_alter_modal.html",
+		s.renderDDLPanel(w, r, ddlModalData{
+			Partial:         "ddl_alter_panel.html",
+			Action:          "alter",
+			PanelID:         panelID,
 			Kind:            kind,
 			ServerID:        sid,
 			FolderID:        folderID,
@@ -2194,8 +2170,10 @@ func (s *Server) handleDDLModal(w http.ResponseWriter, r *http.Request) {
 		values["install_schema"] = schemaDefault
 	}
 
-	s.renderDDLModal(w, ddlModalData{
-		Partial:   "ddl_" + kind + "_modal.html",
+	s.renderDDLPanel(w, r, ddlModalData{
+		Partial:   "ddl_" + kind + "_panel.html",
+		Action:    "create",
+		PanelID:   panelID,
 		Kind:      kind,
 		ServerID:  sid,
 		FolderID:  folderID,
@@ -2253,216 +2231,36 @@ func (s *Server) handleDDLPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sqlStr, err := renderCreateDDL(kind, r.Form)
-	contents := sqlStr
-	if r.FormValue("mode") == "alter" {
-		// The alter dialog shares the preview endpoint; mode=alter routes the
-		// form values through the kind's alter builder instead of the create
-		// builder.
-		k := ddlKinds[kind]
+	var sqlStr string
+	var err error
+	switch k := ddlKinds[kind]; r.FormValue("mode") {
+	case "drop":
+		sqlStr, err = k.BuildDrop(formValues(r.Form))
+	case "alter":
+		// mode=alter routes the form values through the kind's alter builder
+		// instead of the create builder.
 		if !k.hasAlter() {
-			contents = "Error: altering this object kind is not supported."
-		} else if sqlStr, err = k.runAlter(r.Form); err != nil {
-			contents = "Error: " + err.Error()
+			err = formErr("altering this object kind is not supported.")
 		} else {
-			contents = sqlStr
+			sqlStr, err = k.runAlter(r.Form)
 		}
-	} else if err != nil {
-		contents = "Error: " + err.Error()
+	default:
+		sqlStr, err = renderCreateDDL(kind, r.Form)
 	}
-	RenderPartial(w, "ddl_preview.html", map[string]any{"Contents": contents})
+	renderPreview(w, sqlStr, err)
 }
 
-func (s *Server) handleDDLCreate(w http.ResponseWriter, r *http.Request) {
-	kind := chi.URLParam(r, "kind")
-	if _, ok := ddlKinds[kind]; !ok {
-		log.Printf("DDL create: unknown kind %q on %s", kind, r.URL.Path)
-		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		log.Printf("DDL create: invalid form data: %v", err)
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
-		return
-	}
-
-	sid, err := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
-	if err != nil || sid < 1 {
-		log.Printf("DDL create %s: missing or invalid server_id %q", kind, r.FormValue("server_id"))
-		s.renderDDLModal(w, ddlModalData{
-			Partial: "ddl_" + kind + "_modal.html",
-			Kind:    kind,
-			Values:  formValues(r.Form),
-			Error:   "Missing or invalid server id.",
-		})
-		return
-	}
-	folderID := r.FormValue("folder_id")
-	db := r.FormValue("db")
-	schema := r.FormValue("schema")
-	table := r.FormValue("table")
-	if s.isDisconnected(sid) {
-		log.Printf("DDL create %s: server %d is disconnected", kind, sid)
-		s.renderDDLModal(w, ddlModalData{
-			Partial:  "ddl_" + kind + "_modal.html",
-			Kind:     kind,
-			ServerID: sid,
-			FolderID: folderID,
-			DB:       db,
-			Schema:   schema,
-			Table:    table,
-			Values:   formValues(r.Form),
-			Error:    "Server is disconnected. Reconnect it first.",
-		})
-		return
-	}
-
-	// Repopulate the live dropdowns when the form is re-rendered with an
-	// error, so the user does not lose the option lists.
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	pool, perr := s.ddlTargetPool(ctx, kind, sid, db)
-	var dd map[string][]string
-	if perr != nil {
-		log.Printf("DDL create %s pool: %v", kind, perr)
-		dd = map[string][]string{}
-	} else {
-		dd, _ = s.ddlDropdowns(ctx, kind, pool, schema, table)
-	}
-
-	refCols, refSelected := s.fkRerenderFields(ctx, pool, kind, r.Form)
-	rerender := func(errMsg string) {
-		s.renderDDLModal(w, ddlModalData{
-			Partial:           "ddl_" + kind + "_modal.html",
-			Kind:              kind,
-			ServerID:          sid,
-			FolderID:          folderID,
-			DB:                db,
-			Schema:            schema,
-			Table:             table,
-			Values:            formValues(r.Form),
-			Dropdowns:         dd,
-			FKRefColumns:      refCols,
-			FKRefColsSelected: refSelected,
-			Error:             errMsg,
-		})
-	}
-
-	if perr != nil {
-		log.Printf("DDL create %s: cannot reach target database: %v", kind, perr)
-		rerender("Cannot reach the target database: " + perr.Error())
-		return
-	}
-
-	sqlStr, err := renderCreateDDL(kind, r.Form)
+// renderPreview answers a panel's live-SQL request: the statements, or the
+// builder's complaint. "No changes requested" is an empty result, not an error.
+func renderPreview(w http.ResponseWriter, sqlStr string, err error) {
+	data := map[string]any{"Contents": sqlStr}
 	if err != nil {
-		log.Printf("DDL create %s: build error: %v", kind, err)
-		rerender(err.Error())
-		return
+		data["Contents"] = ""
+		if msg := err.Error(); !strings.HasPrefix(msg, "No changes requested") {
+			data["Error"] = msg
+		}
 	}
-
-	tag, err := s.runOnTarget(ctx, kind, sid, db, splitStatements(sqlStr))
-	if err != nil {
-		log.Printf("DDL create %s failed: %v", kind, err)
-		rerender("Execution failed: " + err.Error())
-		return
-	}
-
-	s.refreshDDLTree(w, folderID)
-	RenderPartial(w, "ddl_success.html", map[string]any{"Message": tag})
-}
-
-func (s *Server) handleDDLDrop(w http.ResponseWriter, r *http.Request) {
-	kind := chi.URLParam(r, "kind")
-	if _, ok := ddlKinds[kind]; !ok {
-		log.Printf("DDL drop: unknown kind %q on %s", kind, r.URL.Path)
-		http.Error(w, "Unknown DDL object kind", http.StatusNotFound)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		log.Printf("DDL drop: invalid form data: %v", err)
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
-		return
-	}
-
-	sid, err := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
-	if err != nil || sid < 1 {
-		log.Printf("DDL drop %s: missing or invalid server_id %q", kind, r.FormValue("server_id"))
-		s.renderDDLModal(w, ddlModalData{Partial: "ddl_drop_modal.html", Kind: kind, Error: "Missing or invalid server id."})
-		return
-	}
-	folderID := r.FormValue("folder_id")
-	db := r.FormValue("db")
-	schema := r.FormValue("schema")
-	table := r.FormValue("table")
-	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" {
-		log.Printf("DDL drop %s: object name is required", kind)
-		s.renderDDLModal(w, ddlModalData{
-			Partial:  "ddl_drop_modal.html",
-			Kind:     kind,
-			ServerID: sid,
-			FolderID: folderID,
-			DB:       db,
-			Schema:   schema,
-			Table:    table,
-			Error:    "Object name is required.",
-		})
-		return
-	}
-	if s.isDisconnected(sid) {
-		log.Printf("DDL drop %s: server %d is disconnected", kind, sid)
-		s.renderDDLModal(w, ddlModalData{
-			Partial:  "ddl_drop_modal.html",
-			Kind:     kind,
-			ServerID: sid,
-			FolderID: folderID,
-			DB:       db,
-			Schema:   schema,
-			Table:    table,
-			Error:    "Server is disconnected. Reconnect it first.",
-			Name:     name,
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	rerender := func(errMsg string) {
-		s.renderDDLModal(w, ddlModalData{
-			Partial:  "ddl_drop_modal.html",
-			Kind:     kind,
-			ServerID: sid,
-			FolderID: folderID,
-			DB:       db,
-			Schema:   schema,
-			Table:    table,
-			Error:    errMsg,
-			Name:     name,
-			Force:    r.FormValue("force") == "on",
-			Cascade:  r.FormValue("cascade") == "on",
-		})
-	}
-
-	v := formValues(r.Form)
-	sqlStr, err := ddlKinds[kind].BuildDrop(v)
-	if err != nil {
-		log.Printf("DDL drop %s: build error: %v", kind, err)
-		rerender(err.Error())
-		return
-	}
-
-	tag, err := s.runOnTarget(ctx, kind, sid, db, []string{sqlStr})
-	if err != nil {
-		log.Printf("DDL drop %s failed: %v", kind, err)
-		rerender("Execution failed: " + err.Error())
-		return
-	}
-
-	s.refreshDDLTree(w, folderID)
-	RenderPartial(w, "ddl_success.html", map[string]any{"Message": tag})
+	RenderPartial(w, "ddl_preview.html", data)
 }
 
 // handleDDLDropScript generates the same DROP SQL handleDDLDrop would run,
@@ -2510,19 +2308,6 @@ func (s *Server) handleDDLDropScript(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"query": sqlStr})
-}
-
-// runOnTarget executes create/drop DDL on the pool selected by the kind's
-// scope, refreshing the target database connection as needed.
-func (s *Server) runOnTarget(ctx context.Context, kind string, sid int64, db string, stmts []string) (string, error) {
-	k, ok := ddlKinds[kind]
-	if !ok {
-		return "", errUnsupportedDDLKind(kind)
-	}
-	if k.Scope == ddlScopeDB {
-		return s.runDatabaseDDL(ctx, sid, db, stmts)
-	}
-	return s.runDDL(ctx, sid, stmts)
 }
 
 // alterPrefill loads an object's current server-side attributes so the alter
@@ -2762,163 +2547,46 @@ func (s *Server) fkTargetColumns(ctx context.Context, pool *pgxpool.Pool, schema
 	return cols
 }
 
-// fkRerenderFields repopulates the Foreign key section's referenced-columns
-// select across a create/alter rerender-with-error, so a previously chosen
-// target table and column selection survive a failed submit instead of
-// resetting to empty. Only relevant for kind "table"; returns (nil, nil)
-// otherwise or when no target table was chosen yet.
-func (s *Server) fkRerenderFields(ctx context.Context, pool *pgxpool.Pool, kind string, form url.Values) (refColumns, refSelected []string) {
-	if kind != "table" {
-		return nil, nil
+// panelTitle is the header of a side panel, e.g. "Alter Table - public.orders".
+func panelTitle(action, label, schema, name string) string {
+	title := strings.ToUpper(action[:1]) + action[1:] + " " + label
+	if name == "" {
+		return title
 	}
-	ref := strings.TrimSpace(form.Get("fk_ref_table"))
-	if ref == "" {
-		return nil, nil
+	if schema != "" && !strings.Contains(name, ".") {
+		name = schema + "." + name
 	}
-	schema, table := splitSchemaTable(ref)
-	return s.fkTargetColumns(ctx, pool, schema, table), form["fk_ref_cols"]
+	return title + " - " + name
 }
 
-// existingColumnsFromForm rebuilds the Alter Table dialog's column rows from
-// a rejected submission's raw form values, so a validation error re-renders
-// the dialog with whatever the user had typed rather than reverting to the
-// table's live column state.
-func existingColumnsFromForm(form url.Values) []existingColumn {
-	origNames := form["col_orig_name"]
-	if len(origNames) == 0 {
-		return nil
+// panelConnDB is the database the panel's script tab runs its SQL on: the
+// node's own database, or the server's maintenance database for server-level
+// objects (roles, databases, tablespaces).
+func (s *Server) panelConnDB(ctx context.Context, sid int64, db string) string {
+	if db != "" || sid < 1 {
+		return db
 	}
-	at := func(list []string, i int) string {
-		if i < len(list) {
-			return list[i]
-		}
+	srv, err := s.DB.GetServerByID(ctx, sqlite.GetServerByIDParams{ID: sid, UserID: dbpkg.DefaultUserID})
+	if err != nil {
+		log.Printf("panel connection db for server %d: %v", sid, err)
 		return ""
 	}
-	renames := form["col_rename"]
-	types := form["col_type"]
-	typesOrig := form["col_type_orig"]
-	nulls := form["col_nullable"]
-	nullsOrig := form["col_nullable_orig"]
-	defaults := form["col_default"]
-	defaultsOrig := form["col_default_orig"]
-	drops := form["col_drop"]
-	cols := make([]existingColumn, len(origNames))
-	for i := range origNames {
-		cols[i] = existingColumn{
-			OrigName: at(origNames, i), Rename: at(renames, i),
-			Type: at(types, i), TypeOrig: at(typesOrig, i),
-			Nullable: at(nulls, i), NullableOrig: at(nullsOrig, i),
-			Default: at(defaults, i), DefaultOrig: at(defaultsOrig, i),
-			Drop: at(drops, i) == "1",
-		}
-	}
-	return cols
+	return srv.MaintenanceDb
 }
 
-// handleDDLAlter builds and runs the ALTER script for kinds that support
-// edit-in-place (database, role, schema). Structure mirrors handleDDLCreate:
-// errors re-render the form with the submitted values and live dropdowns.
-func (s *Server) handleDDLAlter(w http.ResponseWriter, r *http.Request) {
-	kind := chi.URLParam(r, "kind")
-	k, ok := ddlKinds[kind]
-	if !ok || !k.hasAlter() {
-		log.Printf("DDL alter: unsupported kind %q on %s", kind, r.URL.Path)
-		http.Error(w, "Altering this object kind is not supported", http.StatusNotFound)
+// handleDDLColumnRow serves the Create / Alter Table panels' column rows:
+// variant "create" or "add" returns a blank row to append, "remove" returns an
+// empty body that replaces the row and tells the form to refresh its SQL.
+func (s *Server) handleDDLColumnRow(w http.ResponseWriter, r *http.Request) {
+	variant := r.URL.Query().Get("variant")
+	if variant == "remove" {
+		w.Header().Set("HX-Trigger", "panel-changed")
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		log.Printf("DDL alter: invalid form data: %v", err)
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+	panelID := r.URL.Query().Get("panel_id")
+	if (variant != "create" && variant != "add") || !panelIDPattern.MatchString(panelID) {
+		http.Error(w, "Invalid column row request", http.StatusBadRequest)
 		return
 	}
-
-	sid, err := strconv.ParseInt(r.FormValue("server_id"), 10, 64)
-	if err != nil || sid < 1 {
-		log.Printf("DDL alter %s: missing or invalid server_id %q", kind, r.FormValue("server_id"))
-		s.renderDDLModal(w, ddlModalData{
-			Partial: "ddl_alter_modal.html",
-			Kind:    kind,
-			Name:    strings.TrimSpace(r.FormValue("name")),
-			Values:  formValues(r.Form),
-			Error:   "Missing or invalid server id.",
-		})
-		return
-	}
-	folderID := r.FormValue("folder_id")
-	db := r.FormValue("db")
-	schema := r.FormValue("schema")
-	table := r.FormValue("table")
-	name := strings.TrimSpace(r.FormValue("name"))
-	if s.isDisconnected(sid) {
-		log.Printf("DDL alter %s: server %d is disconnected", kind, sid)
-		s.renderDDLModal(w, ddlModalData{
-			Partial:  "ddl_alter_modal.html",
-			Kind:     kind,
-			ServerID: sid,
-			FolderID: folderID,
-			DB:       db,
-			Schema:   schema,
-			Table:    table,
-			Name:     name,
-			Values:   formValues(r.Form),
-			Error:    "Server is disconnected. Reconnect it first.",
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	pool, perr := s.ddlTargetPool(ctx, kind, sid, db)
-	var dd map[string][]string
-	if perr != nil {
-		log.Printf("DDL alter %s pool: %v", kind, perr)
-		dd = map[string][]string{}
-	} else {
-		dd, _ = s.ddlDropdowns(ctx, kind, pool, schema, table)
-	}
-
-	var existingCols []existingColumn
-	if kind == "table" {
-		existingCols = existingColumnsFromForm(r.Form)
-	}
-	refCols, refSelected := s.fkRerenderFields(ctx, pool, kind, r.Form)
-	rerender := func(errMsg string) {
-		s.renderDDLModal(w, ddlModalData{
-			Partial:           "ddl_alter_modal.html",
-			Kind:              kind,
-			ServerID:          sid,
-			FolderID:          folderID,
-			DB:                db,
-			Schema:            schema,
-			Table:             table,
-			Name:              name,
-			Values:            formValues(r.Form),
-			Dropdowns:         dd,
-			ExistingColumns:   existingCols,
-			FKRefColumns:      refCols,
-			FKRefColsSelected: refSelected,
-			Error:             errMsg,
-		})
-	}
-
-	if perr != nil {
-		rerender("Cannot reach the target database: " + perr.Error())
-		return
-	}
-	sqlStr, err := k.runAlter(r.Form)
-	if err != nil {
-		log.Printf("DDL alter %s: build error: %v", kind, err)
-		rerender(err.Error())
-		return
-	}
-	tag, err := s.runOnTarget(ctx, kind, sid, db, splitStatements(sqlStr))
-	if err != nil {
-		log.Printf("DDL alter %s failed: %v", kind, err)
-		rerender("Execution failed: " + err.Error())
-		return
-	}
-
-	s.refreshDDLTree(w, folderID)
-	RenderPartial(w, "ddl_success.html", map[string]any{"Message": tag})
+	RenderPartial(w, "ddl_col_row.html", map[string]string{"Variant": variant, "PanelID": panelID})
 }

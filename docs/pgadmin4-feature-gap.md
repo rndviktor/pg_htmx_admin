@@ -43,7 +43,7 @@ that is missing, ordered by priority.
   in the Notifications tab for notices raised during a run
   (`internal/web/notices.go`, `static/js/transactions.js`), **visual
   EXPLAIN** (F7 / Shift+F7: `POST /api/explain` runs `EXPLAIN (FORMAT
-  JSON)`, and `static/js/explain.js` renders a tree with exclusive-time
+  JSON)`, and `internal/web/explain_plan.go` + `templates/partials/explain_plan.html` render a tree (native `<details>`, no script) with exclusive-time
   bars, estimate vs actual rows, hotspot / misestimate / seq-scan-filter /
   spill badges, a sortable table and raw JSON; ANALYZE always runs in a
   transaction that is rolled back, so INSERT/UPDATE/DELETE leave no trace;
@@ -93,7 +93,25 @@ that is missing, ordered by priority.
   tables again rather than only user-defined `CREATE TYPE` composites/enums/
   ranges — clicking one still opens a correct (if misleadingly-labeled)
   Composite panel showing that table's columns.
-- **DDL dialogs (Create / Drop / Alter)**: form-based generate-then-preview-then-run
+- **DDL side panels**: the Create / Drop / Alter forms for every object kind
+  and the Maintenance operations (Vacuum / Analyze / Cluster / Reindex) no
+  longer open popups. Each opens a script tab whose left 70% is a panel with
+  the form components; any change re-generates the SQL live into the tab's
+  editor (the server-side builders behind `POST /api/ddl/{kind}/preview` and
+  `/api/maint/{op}/preview`), the tab's Run executes it and refreshes the
+  tree (and reloads an Alter form against the new definition), `<<` slides the
+  panel away and `>>` in the toolbar brings it back, Reset reloads the form.
+  Server-level objects (database, role, tablespace) run on the server's
+  maintenance database. Backup / Restore, Storage Manager, Add Server and Save
+  Script remain modals (`internal/web/ddl.go` `handleDDLPanel`,
+  `internal/web/maintenance.go` `handleMaintPanel`,
+  `templates/partials/ddl_*_panel.html`, `maint_panel.html`,
+  `static/js/ddl-panel.js`). The forms are htmx all the way: the form posts to
+  the SQL builder on every change, Reset and column rows are server round trips,
+  and the right-click menu and EXPLAIN view are rendered by Go templates
+  (`internal/web/contextmenu.go`, `explain_plan.go`); Chart.js loads only when
+  the Monitoring dashboard first draws a chart.
+- **DDL forms (Create / Drop / Alter)**: form-based generate-then-preview-then-run (now shown in the side panels above)
   for 15 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index,
   trigger, rule and RLS policy — plus a Create Table dialog with columns

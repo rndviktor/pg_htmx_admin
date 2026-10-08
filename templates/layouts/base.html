@@ -8,7 +8,6 @@
     <!-- Load htmx & CSS -->
     <script src="https://unpkg.com/htmx.org@2.0.2"></script>
     <link rel="stylesheet" href="/static/tailwind.css">
-    <script type="module" src="/static/vendor/chart.bundle.js"></script>
 
     <style>
         /* Dark CodeMirror polish to match the Tailwind gray-900 UI. */
@@ -49,11 +48,22 @@
         .ac-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
         .ac-toggle:has(input:checked) { color: #60a5fa; border-color: #2563eb; }
 
-        /* Visual EXPLAIN (static/js/explain.js) */
+        /* Visual EXPLAIN (server-rendered, internal/web/explain_plan.go) */
+        .xp-view { position: relative; }
+        .xp-radio { position: absolute; opacity: 0; pointer-events: none; }
+        .xp-view > .xp-body { display: none; }
+        .xp-r-tree:checked ~ .xp-p-tree, .xp-r-table:checked ~ .xp-p-table, .xp-r-raw:checked ~ .xp-p-raw { display: block; }
         .xp-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #374151; }
-        .xp-tab { padding: 2px 10px; font-size: 11px; color: #9ca3af; border: 1px solid #4b5563; border-radius: 4px; }
+        .xp-tab { padding: 2px 10px; font-size: 11px; color: #9ca3af; border: 1px solid #4b5563; border-radius: 4px; cursor: pointer; }
         .xp-tab:hover { color: #e5e7eb; background: #374151; }
-        .xp-tab-active { color: #fff; background: #374151; border-color: #60a5fa; }
+        .xp-r-tree:checked ~ .xp-tabs .xp-t-tree, .xp-r-table:checked ~ .xp-tabs .xp-t-table,
+        .xp-r-raw:checked ~ .xp-tabs .xp-t-raw { color: #fff; background: #374151; border-color: #60a5fa; }
+        summary.xp-row { list-style: none; }
+        summary.xp-row::-webkit-details-marker { display: none; }
+        .xp-toggle::before { content: "B8"; }
+        .xp-node[open] > summary .xp-toggle::before { content: "BE"; }
+        .xp-more > summary { cursor: pointer; margin-left: 20px; font-size: 10px; color: #6b7280; }
+        .xp-more > summary:hover { color: #9ca3af; }
         .xp-body { padding: 8px; font-size: 12px; overflow: auto; }
         .xp-node .xp-node { margin-left: 18px; border-left: 1px solid #374151; padding-left: 6px; }
         .xp-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; cursor: pointer; border-radius: 4px; white-space: nowrap; }
@@ -116,6 +126,31 @@
             max-height: 90vh;
             overflow-y: auto;
         }
+
+        /* DDL side panel (ddl-panel.js): covers the left 70% of a
+           script tab below its toolbar (top is set from the toolbar height by
+           the script) and slides out to the left when collapsed. */
+        .ddl-panel {
+            position: absolute;
+            left: 0;
+            top: 46px;
+            bottom: 0;
+            width: 70%;
+            z-index: 30;
+            overflow-y: auto;
+            background: #111827;
+            border-right: 1px solid #374151;
+            transition: transform 0.2s ease, visibility 0s;
+        }
+        .ddl-collapsed .ddl-panel {
+            transform: translateX(-100%);
+            visibility: hidden;
+            transition: transform 0.2s ease, visibility 0s 0.2s;
+        }
+        .ddl-expand { display: none; }
+        .ddl-collapsed .ddl-expand { display: inline-flex; }
+        .ddl-out pre { display: none; }
+        .ddl-out [data-panel-error] { padding: 4px 16px; font-size: 12px; color: #fbbf24; }
     </style>
 
     <!-- Application scripts (split by purpose; see static/js/*.js) -->
@@ -125,12 +160,12 @@
     <script src="/static/js/context-menu.js"></script>
     <script src="/static/js/tree.js"></script>
     <script src="/static/js/tabs.js"></script>
-    <script src="/static/js/explain.js"></script>
     <script src="/static/js/transactions.js"></script>
     <script src="/static/js/results.js"></script>
     <script src="/static/js/listen.js"></script>
     <script src="/static/js/properties.js"></script>
     <script src="/static/js/ddl.js"></script>
+    <script src="/static/js/ddl-panel.js"></script>
     <script src="/static/js/save-dialog.js"></script>
     <script src="/static/js/workspace.js"></script>
     <script src="/static/js/find.js"></script>
