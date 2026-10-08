@@ -187,9 +187,14 @@ that is missing, ordered by priority.
   (`internal/web/handlers.go`, `templates/partials/query_result.html`).
 - ~~**P2.2.** **Backup & Restore**~~ — **done**; see "What this app already
   has" above.
-- **P2.3.** **Query tool power features** — remaining: server-side
-  result cursors (paging today is `LIMIT`/`OFFSET`, re-running the query
-  per page). Done so far: **live LISTEN / NOTIFY** (typing `LISTEN channel`
+- **P2.3.** **Query tool power features** — **done**. Items: **server-side
+  result cursors** (opt-in cursor toggle in the toolbar: a single
+  row-returning statement is declared once as a scrollable cursor and pages
+  are `MOVE`/`FETCH`, so the query runs once instead of `COUNT(*)` +
+  `LIMIT/OFFSET` per page; the total is unknown until the last page is
+  reached or "Last" is clicked; the tab stays in a transaction, which any
+  other run, COMMIT/ROLLBACK or 5 minutes idle ends; one cursor per tab;
+  `internal/web/cursor.go`, `static/js/tabs.js`), **live LISTEN / NOTIFY** (typing `LISTEN channel`
   in a tab opens a dedicated listener connection outside the pool, and
   notifications stream into the Notifications tab over server-sent events
   until `UNLISTEN`, tab close, server or database disconnect, or 30 minutes

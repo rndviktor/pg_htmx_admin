@@ -196,11 +196,12 @@ func endSessions(taken map[string]*tabSession, note string) {
 	for id, s := range taken {
 		rollbackBestEffort(s.conn)
 		s.conn.Release()
+		sessMu.Lock()
+		delete(cursors, id) // the rollback closed the tab's cursor, if any
 		if note != "" {
-			sessMu.Lock()
 			txNotes[id] = note
-			sessMu.Unlock()
 		}
+		sessMu.Unlock()
 	}
 }
 

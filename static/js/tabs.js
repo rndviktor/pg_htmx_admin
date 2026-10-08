@@ -254,7 +254,9 @@ function reportNotConnected(panel, status) {
     logMessage(panel, "warn", "This script tab is not connected to a database. Right-click a server, database, schema or object node and choose Query Tool.");
 }
 
-function executeQuery(btn, page) {
+// nav is true when the run is a page change of the current result, so the
+// server may keep using the tab's open cursor instead of declaring a new one.
+function executeQuery(btn, page, nav) {
     const panel = btn.closest("[id^='tab-content']");
     if (!panel) return;
     const form = queryForm(panel);
@@ -289,6 +291,11 @@ function executeQuery(btn, page) {
         limit: QUERY_PAGE_LIMIT,
     });
     txApplyAutocommit(panel, body);
+    const cursorToggle = panel.querySelector(".cursor-toggle");
+    if (cursorToggle && cursorToggle.checked) {
+        body.set("cursor", "on");
+        if (nav) body.set("nav", "on");
+    }
 
     const t0 = performance.now();
     if (status) status.textContent = "Running... 0s";
@@ -333,6 +340,9 @@ function executeQuery(btn, page) {
             const totalPages = parseInt(data.totalPages) || 1;
             const curPage = parseInt(data.page) || 1;
             const rows = grid ? grid.querySelectorAll("tbody tr").length : 0;
+            // Cursor mode only knows the total once the last page was reached.
+            const totalKnown = data.totalKnown !== "false";
+            const countLabel = totalKnown ? rowLabel(total) : total + "+ rows";
 
             logMessage(panel, "info", "Query executed in " + elapsed + "s");
             applyNotices(panel, data.notices);
@@ -343,15 +353,17 @@ function executeQuery(btn, page) {
                 if (status) status.classList.toggle("text-red-400", isError);
                 logMessage(panel, isError ? "error" : "success", message);
             } else {
-                if (status) status.textContent = rowLabel(total) + " (" + rows + " on page) — " + elapsed + "s";
-                logMessage(panel, "success", rowLabel(total) + " returned");
+                if (status) status.textContent = countLabel + " (" + rows + " on page) — " + elapsed + "s";
+                logMessage(panel, "success", countLabel + " returned");
             }
+            if (data.cursor === "true") refreshTxState(panel);
 
             if (totalPages > 1) {
                 pag.classList.remove("hidden");
-                pageInfo.textContent = "Page " + curPage + " of " + totalPages;
+                pageInfo.textContent = "Page " + curPage + (totalKnown ? " of " + totalPages : "");
                 pag.dataset.page = curPage;
                 pag.dataset.totalPages = totalPages;
+                pag.dataset.totalKnown = totalKnown;
             } else {
                 pag.classList.add("hidden");
             }
@@ -559,11 +571,13 @@ function goToPage(btn, action) {
 
     if (action === "prev") page = Math.max(1, page - 1);
     else if (action === "next") page = Math.min(totalPages, page + 1);
-    else if (action === "last") page = totalPages;
-    else if (typeof action === "number") page = action;
+    else if (action === "last") {
+        // Cursor mode with an unknown total: the server counts the rows.
+        page = pag.dataset.totalKnown === "false" ? "last" : totalPages;
+    } else if (typeof action === "number") page = action;
 
     const execBtn = panel.querySelector("button[onclick='executeQuery(this)']");
-    if (execBtn) executeQuery(execBtn, page);
+    if (execBtn) executeQuery(execBtn, page, true);
 }
 
 function switchScriptPane(tabBtn) {
