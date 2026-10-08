@@ -4,7 +4,7 @@ RUN apk add --no-cache git ca-certificates
 
 # Empty parent directory for the SQLite metadata DB; copied into the runner
 # with nonroot ownership so the app can create pgadmin4.db at /data.
-RUN mkdir -p /data && chown 65532:65532 /data
+RUN mkdir -p /data/host_files/backups /data/host_files/scripts && chown -R 65532:65532 /data
 
 WORKDIR /app
 
@@ -30,6 +30,9 @@ COPY --from=builder /app/main /main
 COPY --from=builder --chown=65532:65532 /data /data
 
 WORKDIR /data
+# /data/host_files is the one folder shared with the host: Storage Manager /
+# Backup files and scripts saved from the Save dialog (see docker-compose.yml).
+ENV BACKUP_DIR=/data/host_files/backups SCRIPTS_DIR=/data/host_files/scripts
 USER 65532:65532
 
 EXPOSE 8080

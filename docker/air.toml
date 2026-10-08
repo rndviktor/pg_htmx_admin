@@ -16,7 +16,7 @@ tmp_dir = "/tmp/air"
   kill_delay = 500
   pre_cmd = ["npm run build:editor"]
   include_ext = ["go", "mod", "sum", "html", "js", "mjs", "css"]
-  exclude_dir = ["node_modules", ".git", "working_example"]
+  exclude_dir = ["node_modules", ".git", "working_example", "host_files"]
   exclude_regex = [
     ".*_test\\.go$",
     "pgadmin4\\.db(-wal|-shm)?$",

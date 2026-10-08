@@ -216,7 +216,7 @@ that is missing, ordered by priority.
   (partial output is deleted) and are listed under "Background Jobs" (in
   memory only, newest 50, lost on restart; 30 min cap per job).
   The **Storage Manager** lists, uploads, downloads and deletes the backups in
-  the storage directory (`BACKUP_DIR`, default `./backups`); directory dumps
+  the storage directory (`BACKUP_DIR`, default `./host_files/backups`); directory dumps
   show as folders, download as a zip and delete recursively. Needs the
   PostgreSQL 18 client tools, installed in both Dockerfiles
   (`internal/web/backup.go`, `jobs.go`, `storage.go`,

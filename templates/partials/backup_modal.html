@@ -7,7 +7,6 @@
         </div>
 
         {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
-        {{ if .Output }}<pre class="text-xs font-mono text-gray-300 bg-gray-900 border border-gray-700 rounded p-2 mb-3 max-h-40 overflow-auto whitespace-pre-wrap">{{ .Output }}</pre>{{ end }}
 
         <form hx-post="/api/backup/{{ .Op }}/run" hx-target="#modal-container" hx-swap="innerHTML"
               hx-disabled-elt="button[type='submit']" class="space-y-4">

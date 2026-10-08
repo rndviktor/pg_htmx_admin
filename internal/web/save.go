@@ -2,10 +2,13 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"htmx-golang-excercise/internal/env"
 )
 
 type saveScriptRequest struct {
@@ -19,18 +22,32 @@ func (s *Server) handleSaveScriptModal(w http.ResponseWriter, r *http.Request) {
 	RenderPartial(w, "save_script_modal.html", nil)
 }
 
-// handleSaveDefaultPath reports the server process's working directory.
-// The client uses it as the starting folder for the Save As dialog
-// ("nearest available to the process folder").
-func (s *Server) handleSaveDefaultPath(w http.ResponseWriter, r *http.Request) {
-	cwd, err := os.Getwd()
+// scriptsDir returns the folder the Save As dialog starts in (SCRIPTS_DIR,
+// default ./host_files/scripts), creating it on first use. Like BACKUP_DIR it lives in host_files/, the
+// one folder shared with the host when the app runs in Docker.
+func scriptsDir() (string, error) {
+	dir, err := filepath.Abs(env.Get("SCRIPTS_DIR", "host_files/scripts"))
 	if err != nil {
-		log.Printf("[save] Failed to resolve working directory: %v", err)
-		http.Error(w, "Failed to resolve working directory: "+err.Error(), http.StatusInternalServerError)
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("scripts directory %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
+// handleSaveDefaultPath reports the Save As dialog's starting folder and the
+// server's path separator, so the client builds a path that is valid on the
+// server's OS (the app may run in a Linux container).
+func (s *Server) handleSaveDefaultPath(w http.ResponseWriter, r *http.Request) {
+	dir, err := scriptsDir()
+	if err != nil {
+		log.Printf("[save] Failed to resolve scripts directory: %v", err)
+		http.Error(w, "Failed to resolve scripts directory: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"cwd": filepath.Clean(cwd)})
+	json.NewEncoder(w).Encode(map[string]string{"dir": dir, "sep": string(filepath.Separator)})
 }
 
 // handleSaveScript writes the submitted content to the given path. The

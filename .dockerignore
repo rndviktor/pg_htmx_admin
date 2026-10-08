@@ -1,6 +1,7 @@
 node_modules/
 .git/
 .env
+host_files/
 *.md
 LICENSE
 pgadmin4.db

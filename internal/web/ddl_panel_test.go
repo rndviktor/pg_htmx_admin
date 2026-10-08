@@ -110,3 +110,21 @@ func TestColumnRowAndPreview(t *testing.T) {
 		}
 	}
 }
+
+// The backup / restore dialogs are still real modals; render each op so a
+// template/struct mismatch fails here instead of in the browser.
+func TestBackupModalsRender(t *testing.T) {
+	if err := InitTemplates(); err != nil {
+		t.Skipf("templates unavailable: %v", err)
+	}
+	t.Setenv("BACKUP_DIR", t.TempDir())
+	s := &Server{}
+	for op := range backupOps {
+		w := httptest.NewRecorder()
+		s.renderBackupModal(w, backupModalData{Op: op, ServerID: 1, DB: "db", Schema: "public", Table: "t",
+			Values: map[string]string{"format": "custom", "content": "all", "scope": "globals", "filename": "x"}})
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "/api/backup/"+op+"/run") {
+			t.Errorf("backup %s: status %d, body %.200q", op, w.Code, w.Body.String())
+		}
+	}
+}

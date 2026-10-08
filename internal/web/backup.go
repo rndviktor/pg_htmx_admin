@@ -94,7 +94,7 @@ func (c pgConn) env() []string {
 
 // backupDir returns the storage directory, creating it on first use.
 func backupDir() (string, error) {
-	dir, err := filepath.Abs(env.Get("BACKUP_DIR", "backups"))
+	dir, err := filepath.Abs(env.Get("BACKUP_DIR", "host_files/backups"))
 	if err != nil {
 		return "", err
 	}

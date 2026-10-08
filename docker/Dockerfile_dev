@@ -1,9 +1,11 @@
 # Development image: source code is bind-mounted at /app and Air watches the
 # tree — rebuilding the Go server (templates/ and static/ are re-embedded via
 # go:embed) and running the esbuild bundling (CodeMirror + tree-shaken Chart.js)
-# via pre_cmd before each Go rebuild. node_modules, the Go module cache and the
-# Go build cache live in named volumes outside the mount so platform-specific
-# binaries (esbuild) and modules survive the bind mount.
+# via pre_cmd before each Go rebuild. The frontend toolchain is installed in
+# /frontend and exposed at /node_modules (Node and esbuild resolve packages by
+# walking up from /app), so no node_modules mountpoint is created inside the
+# bind-mounted project and nothing appears on the host. The Go module cache and
+# build cache live in named volumes.
 FROM golang:1.27.0-alpine
 
 RUN apk add --no-cache git ca-certificates nodejs npm postgresql18-client
@@ -11,8 +13,13 @@ RUN apk add --no-cache git ca-certificates nodejs npm postgresql18-client
 # Air: Go live-reload tool — watches files, runs pre_cmd, rebuilds & restarts.
 RUN go install github.com/air-verse/air@latest
 
+# Backup / Storage files and scripts from the Save dialog live in host_files/
+# inside the bind-mounted repo, so they show up on the host as ./host_files.
 ENV CGO_ENABLED=0 \
-    PATH="/go/bin:${PATH}"
+    PATH="/go/bin:${PATH}" \
+    BACKUP_DIR=/app/host_files/backups \
+    SCRIPTS_DIR=/app/host_files/scripts \
+    FRONTEND_DIR=/frontend
 
 WORKDIR /app
 
@@ -20,10 +27,12 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Frontend toolchain — produces /app/node_modules, kept in a named volume so
-# the host's win32 node_modules never shadow the linux esbuild binary.
+# Frontend toolchain — installed outside /app so the host's win32 node_modules
+# never shadow the linux esbuild binary and no folder is created on the host.
+WORKDIR /frontend
 COPY package.json package-lock.json ./
-RUN npm install --no-audit --no-fund
+RUN npm install --no-audit --no-fund && ln -s /frontend/node_modules /node_modules
+WORKDIR /app
 
 EXPOSE 8080
 

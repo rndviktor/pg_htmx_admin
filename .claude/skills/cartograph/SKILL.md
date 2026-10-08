@@ -78,7 +78,7 @@ docker build -f docker/Dockerfile -t bos-ui:latest .
 `docker/docker-compose.dev.yml` lives in `docker/`, so relative paths use `..` for context and the source mount:
 
 - `build.context: ./..`, `dockerfile: docker/Dockerfile_dev` (from the project root).
-- Volume `..:/app` mounts the repo; named volumes hold `node_modules` (Linux esbuild, separate from host win32 deps), `/go/pkg/mod`, and `/root/.cache/go-build`.
+- Volume `..:/app` mounts the repo; named volumes hold `/go/pkg/mod` and `/root/.cache/go-build`. The Linux frontend toolchain is installed in `/frontend` (symlinked at `/node_modules`, `FRONTEND_DIR` makes `scripts/build-editor.mjs` load that esbuild), so no `node_modules` mountpoint appears in the project on the host — do not add a volume at `/app/node_modules`.
 - `HOST_PORT` env overrides the published host port (default 8080; the user's `pghtmx-container` often occupies 8080).
 - `docker/Dockerfile_dev` — golang:alpine + node/npm + Air (`go install github.com/air-verse/air@latest`, pinned automatically).
 - `docker/air.toml` — Air watches `go/html/js/mjs/css/mod/sum` files: `pre_cmd` runs `npm run build:editor` (esbuild + tree shaking) then `go build -o /tmp/air/main ./cmd/server`. Excludes the generated bundles and `pgadmin4.db*` from the watch to avoid rebuild loops. Polling enabled for bind-mounts.
@@ -88,7 +88,7 @@ Run:
 ```sh
 docker compose -f docker/docker-compose.dev.yml up [--build]
 HOST_PORT=18081 docker compose -f docker/docker-compose.dev.yml up  # if 8080 taken
-docker compose -f docker/docker-compose.dev.yml down -v              # reset node_modules/go cache volumes
+docker compose -f docker/docker-compose.dev.yml down -v              # reset the go cache volumes
 ```
 
 The server logs `Server started on http://localhost:8080` (container port; map to HOST_PORT).

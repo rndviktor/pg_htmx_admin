@@ -53,8 +53,8 @@
         fetch(DEFAULT_PATH_URL)
             .then((r) => { if (!r.ok) throw r; return r.json(); })
             .then((d) => {
-                const dir = String(d.cwd || "").replace(/[\\/]+$/, "");
-                input.value = dir ? dir + "\\" + name : name;
+                const dir = String(d.dir || "").replace(/[\\/]+$/, "");
+                input.value = dir ? dir + (d.sep || "/") + name : name;
             })
             .catch(() => { input.value = name; });
     }

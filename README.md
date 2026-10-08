@@ -76,6 +76,8 @@ ADDR=:9000 go run ./cmd/server
 
 Open http://localhost:8080 and sign in with the email/password from `.env`. A failed login always shows `Wrong email or password.`, regardless of whether the email exists.
 
+Host files: everything the app exchanges with the host lives in one folder, `host_files/` — `host_files/backups` (`BACKUP_DIR`, Backup / Storage Manager) and `host_files/scripts` (`SCRIPTS_DIR`, where the Save dialog starts). With Docker, `docker/docker-compose.yml` mounts `./host_files` as `/data/host_files`; the dev compose file exposes the same folder through the repo bind mount at `/app/host_files`.
+
 ### 4. Register a PostgreSQL server
 
 Use the **add server** modal (✦ icon in the sidebar) and point it at your Postgres instance. For a quick local playground:
