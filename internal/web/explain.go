@@ -2,21 +2,12 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 )
-
-// explainResponse is the JSON payload of POST /api/explain: the raw
-// EXPLAIN (FORMAT JSON) document plus run metadata for the Explain tab.
-type explainResponse struct {
-	Plan       json.RawMessage `json:"plan"`
-	RolledBack bool            `json:"rolled_back"`
-	Elapsed    float64         `json:"elapsed"`
-}
 
 // explainSQL builds the EXPLAIN statement. BUFFERS is only valid (and only
 // useful) together with ANALYZE.
@@ -41,7 +32,7 @@ func explainMutates(query string) bool {
 }
 
 // handleExplain runs EXPLAIN (FORMAT JSON), optionally with ANALYZE, and
-// returns the plan for the client-side tree renderer. EXPLAIN ANALYZE really
+// returns the plan rendered as HTML (explain_plan.go). EXPLAIN ANALYZE really
 // executes the statement, so it runs inside a transaction that is always
 // rolled back: plans are real, but INSERT/UPDATE/DELETE leave no trace.
 func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
@@ -104,10 +95,14 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(explainResponse{
-		Plan:       plan,
-		RolledBack: analyze && explainMutates(query),
-		Elapsed:    elapsed.Seconds(),
-	})
+	group := tabID
+	if !panelIDPattern.MatchString(group) {
+		group = "x"
+	}
+	view, err := buildPlanView(plan, analyze && explainMutates(query), group)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	RenderPartial(w, "explain_plan.html", view)
 }

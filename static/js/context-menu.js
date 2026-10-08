@@ -1,440 +1,82 @@
 // -----------------------------------------------------------------------------
-// Right-click context menu for tree nodes carrying [data-tree-menu].
+// Right-click context menu for tree nodes carrying [data-tree-menu]. The menu
+// itself is rendered by the server (GET /api/context-menu, internal/web/
+// contextmenu.go); this file positions it and maps the data-act items that
+// need script to the window functions that open tabs and panels. Items with
+// hx-* attributes (modals, POSTs) are handled by htmx.
 // -----------------------------------------------------------------------------
 function initContextMenu() {
     const menu = document.getElementById("ctx-menu");
     if (!menu) return;
-
-    let currentTableURL = null;
-    let currentMenuKind = "";
-    let currentPropsURL = "";
-    let currentDataURL = "";
+    let node = null; // the right-clicked tree <li>
 
     function hideMenu() {
         menu.classList.add("hidden");
-        currentTableURL = null;
-        currentMenuKind = "";
-        currentPropsURL = "";
-        currentDataURL = "";
     }
 
-    function menuItem(label, danger) {
-        const b = document.createElement("button");
-        b.className = "block w-full text-left px-3 py-1.5 hover:bg-gray-700 " +
-            (danger ? "text-red-400 hover:text-red-300" : "");
-        b.textContent = label;
-        return b;
-    }
-
-    function divider() {
-        const d = document.createElement("div");
-        d.className = "my-1 border-t border-gray-700";
-        return d;
-    }
-
-    // Label for the "Create" action of a category folder (e.g. "schema" ->
-    // "Create Schema"). Only kinds wired into the DDL framework are offered.
-    function createLabel(kind) {
-        const labels = {
-            schema: "Schema", table: "Table", sequence: "Sequence", view: "View",
-            matview: "Materialized View", function: "Function", procedure: "Procedure",
-            extension: "Extension", publication: "Publication",
-            index: "Index", trigger: "Trigger", rule: "Rule", policy: "RLS Policy",
-        };
-        return labels.hasOwnProperty(kind) ? "Create " + labels[kind] : "";
-    }
-
-    // Builds the hover-revealed "Scripts" submenu used by table/view and
-    // materialized-view nodes. entries is [{label, onPick}].
-    function scriptsSubmenu(entries) {
-        const row = document.createElement("div");
-        row.className = "relative group";
-        const trigger = document.createElement("button");
-        trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
-        trigger.innerHTML = '<span>Scripts</span><span class="text-xs text-gray-500">\u25B8</span>';
-        const sub = document.createElement("div");
-        sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[12rem]";
-        entries.forEach((entry) => {
-            const item = menuItem(entry.label, false);
-            item.addEventListener("click", entry.onPick);
-            sub.appendChild(item);
+    function query(el) {
+        const btn = el.querySelector("button[hx-get]");
+        return new URLSearchParams({
+            kind: el.getAttribute("data-tree-menu") || "",
+            table_url: btn ? btn.getAttribute("hx-get") : "",
+            props_url: el.getAttribute("data-props-url") || "",
+            data_url: el.getAttribute("data-url") || "",
+            name: (el.dataset.name || "").trim(),
+            state: el.getAttribute("data-tree-state") || "",
+            has_children: btn && btn.getAttribute("hx-target") ? "1" : "",
         });
-        row.append(trigger, sub);
-        return row;
     }
 
     function openMenu(x, y, el) {
-        menu.innerHTML = "";
-        currentTableURL = null;
-        currentMenuKind = el.getAttribute("data-tree-menu") || "";
-        currentPropsURL = el.getAttribute("data-props-url") || "";
-        currentDataURL = el.getAttribute("data-url") || "";
-
-        const btn = el.querySelector("button[hx-get]");
-        if (btn) currentTableURL = btn.getAttribute("hx-get");
-
-        // URL to derive the DDL context (server/db/schema/table) from. Menu
-        // leaves without a lazy-load button fall back to their properties URL
-        // and finally to the explicit data-url.
-        const nodeURL = currentTableURL || currentPropsURL || currentDataURL;
-
-        // "Refresh" re-fetches the node's children. The node stays expanded and
-        // previously expanded descendants are re-populated as well.
-        const refreshItem = menuItem("Refresh", false);
-        refreshItem.addEventListener("click", () => {
-            if (!btn || !btn.getAttribute("hx-target")) {
-                openTab("Refresh");
-            } else {
-                refreshTreeNode(el);
-            }
-        });
-        menu.appendChild(refreshItem);
-
-        // "Query Tool" opens an empty script tab connected to the
-        // node's database (valid for database, schema and table). Leaf
-        // objects (materialized views, sequences, functions, indexes,
-        // triggers) carry no children button, so their /properties URL —
-        // which is still database-scoped — supplies the connection instead.
-        const qtItem = menuItem("Query Tool", false);
-        qtItem.addEventListener("click", () => {
-            const conn = connectionFromTreeURL(currentTableURL) || connectionFromTreeURL(currentPropsURL);
-            if (conn) {
-                openQueryToolTab(conn.serverID, conn.serverName, conn.dbName);
-            } else {
-                openTab("Query Tool");
-            }
-        });
-        menu.appendChild(qtItem);
-
-        // Server nodes react to their state: connected (green) offers
-        // "Disconnect from server", disconnected-by-user (gray) offers
-        // "Connect", and unavailable (red) offers "Try to reconnect".
-        // The two reconnecting actions go through /reconnect and turn the
-        // dot green on success.
-        if (currentMenuKind === "server") {
-            menu.appendChild(divider());
-
-            const state = el.getAttribute("data-tree-state");
-
-            if (state === "on") {
-                const discItem = menuItem("Disconnect from server", true);
-                discItem.addEventListener("click", () => {
-                    const serverID = parseServerDBURL(currentTableURL).serverID;
-                    const target = btn && btn.getAttribute("hx-target");
-                    if (target) {
-                        const container = document.querySelector(target);
-                        if (container) container.innerHTML = "";
-                    }
-                    // Gray immediately; the backend keeps it disconnected so a page
-                    // refresh does not re-connect the server.
-                    setServerDot(el, "gray");
-                    if (serverID) {
-                        fetch("/api/servers/" + serverID + "/disconnect", { method: "POST" })
-                            .then((r) => { if (!r.ok) throw r; })
-                            .catch(() => {
-                                if (window.showToast) window.showToast("Failed to disconnect the server.", "error");
-                            });
-                    }
-                });
-                menu.appendChild(discItem);
-            } else {
-                // Gray (disconnected by me) -> Connect, red (unavailable) -> retry.
-                const item = menuItem(state === "off" ? "Try to reconnect" : "Connect", false);
-                item.addEventListener("click", () => refreshTreeNode(el));
-                menu.appendChild(item);
-            }
-        }
-
-        // Server-wide admin actions: reload the config file (no confirmation
-        // needed beyond the usual one) and create a named restore point
-        // (name collected via a bare prompt — the only lightweight,
-        // no-modal precedent for a single text field in this app).
-        if (currentMenuKind === "server") {
-            menu.appendChild(divider());
-
-            const reloadItem = menuItem("Reload Configuration", false);
-            reloadItem.addEventListener("click", () => {
-                const serverID = parseServerDBURL(currentTableURL).serverID;
-                if (!serverID || !confirm("Reload configuration on this server?")) return;
-                fetch("/api/servers/" + serverID + "/reload-config", { method: "POST" })
-                    .then((r) => { if (!r.ok) throw r; return r.json(); })
-                    .then(() => { if (window.showToast) window.showToast("Configuration reloaded.", "success"); })
-                    .catch(async (httpErr) => {
-                        let detail = httpErr && typeof httpErr.text === "function" ? await httpErr.text().catch(() => "") : "";
-                        if (window.showToast) window.showToast("Reload failed" + (detail ? ": " + detail : "."), "error");
-                    });
-            });
-            menu.appendChild(reloadItem);
-
-            const restoreItem = menuItem("Create Restore Point", false);
-            restoreItem.addEventListener("click", () => {
-                const serverID = parseServerDBURL(currentTableURL).serverID;
-                const name = window.prompt("Restore point name:");
-                if (!serverID || !name) return;
-                fetch("/api/servers/" + serverID + "/restore-point", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: "name=" + encodeURIComponent(name),
-                })
-                    .then((r) => { if (!r.ok) throw r; return r.json(); })
-                    .then((data) => { if (window.showToast) window.showToast("Restore point created at " + data.lsn + ".", "success"); })
-                    .catch(async (httpErr) => {
-                        let detail = httpErr && typeof httpErr.text === "function" ? await httpErr.text().catch(() => "") : "";
-                        if (window.showToast) window.showToast("Create restore point failed" + (detail ? ": " + detail : "."), "error");
-                    });
-            });
-            menu.appendChild(restoreItem);
-        }
-
-        // Database nodes react to their state exactly like server nodes:
-        // connected (green) offers "Disconnect", disconnected-by-user (gray)
-        // offers "Connect", unavailable (red) offers "Try to reconnect".
-        // Distinct from the server's own connect/disconnect above.
-        if (currentMenuKind === "database") {
-            menu.appendChild(divider());
-
-            const state = el.getAttribute("data-tree-state");
-            const dbConn = parseServerDBURL(currentTableURL || currentPropsURL);
-
-            if (state === "on") {
-                const discItem = menuItem("Disconnect", true);
-                discItem.addEventListener("click", () => {
-                    const target = btn && btn.getAttribute("hx-target");
-                    if (target) {
-                        const container = document.querySelector(target);
-                        if (container) container.innerHTML = "";
-                    }
-                    setServerDot(el, "gray");
-                    if (dbConn.serverID && dbConn.dbName) {
-                        fetch("/api/servers/" + dbConn.serverID + "/databases/" + dbConn.dbName + "/disconnect", { method: "POST" })
-                            .then((r) => { if (!r.ok) throw r; })
-                            .catch(() => {
-                                if (window.showToast) window.showToast("Failed to disconnect the database.", "error");
-                            });
-                    }
-                });
-                menu.appendChild(discItem);
-            } else {
-                const item = menuItem(state === "off" ? "Try to reconnect" : "Connect", false);
-                item.addEventListener("click", () => refreshTreeNode(el));
-                menu.appendChild(item);
-            }
-        }
-
-        // Servers can create cluster-level objects (database, role,
-        // tablespace). All generate DDL and run it on the maintenance db.
-        if (currentMenuKind === "server") {
-            menu.appendChild(divider());
-
-            const row = document.createElement("div");
-            row.className = "relative group";
-            const trigger = document.createElement("button");
-            trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
-            trigger.innerHTML = '<span>Create</span><span class="text-xs text-gray-500">\u25B8</span>';
-            const sub = document.createElement("div");
-            sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[10rem]";
-            [["Database", "database"], ["Role", "role"], ["Tablespace", "tablespace"]].forEach((entry) => {
-                const item = menuItem(entry[0], false);
-                item.addEventListener("click", () => openDDLPanel("create", entry[1], nodeURL, "", ""));
-                sub.appendChild(item);
-            });
-            row.append(trigger, sub);
-            menu.appendChild(row);
-        }
-
-        // Category folders (e.g. the Schemas or Indexes folder) carry a
-        // Menu of the form "create-<kind>" and offer a single Create action.
-        if (currentMenuKind.indexOf("create-") === 0) {
-            const kind = currentMenuKind.slice("create-".length);
-            const label = createLabel(kind);
-            if (label) {
-                menu.appendChild(divider());
-
-                const createItem = menuItem(label, false);
-                createItem.addEventListener("click", () => {
-                    openDDLPanel("create", kind, nodeURL, "", ddlFolderID(el, true));
-                });
-                menu.appendChild(createItem);
-            }
-        }
-
-        // Dropable objects: server-level kinds (database, role, tablespace)
-        // plus every Phase A database-scoped leaf/expander kind.
-        const DROP_ITEMS = {
-            database: "Drop Database", role: "Drop Role", tablespace: "Drop Tablespace",
-            schema: "Drop Schema", table: "Drop Table", view: "Drop View", "materialized-view": "Drop Materialized View",
-            sequence: "Drop Sequence", function: "Drop Function", procedure: "Drop Procedure",
-            extension: "Drop Extension", publication: "Drop Publication",
-            index: "Drop Index", trigger: "Drop Trigger", rule: "Drop Rule",
-            "rls-policy": "Drop RLS Policy",
-        };
-        // Some tree-menu kinds use a different DDL route kind.
-        const DDL_KINDS = { "materialized-view": "matview", "rls-policy": "policy" };
-
-        if (DROP_ITEMS.hasOwnProperty(currentMenuKind)) {
-            menu.appendChild(divider());
-
-            const dropItem = menuItem(DROP_ITEMS[currentMenuKind], true);
-            dropItem.addEventListener("click", () => {
-                const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
-                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openDDLPanel("drop", kind, nodeURL, name, ddlFolderID(el, false));
-            });
-            menu.appendChild(dropItem);
-
-            // "DROP Script": generates the same DROP SQL into a read-only
-            // script tab without running it, for every droppable kind at once.
-            const dropScriptItem = menuItem("DROP Script", false);
-            dropScriptItem.addEventListener("click", () => {
-                const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
-                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openDropScriptTab(kind, nodeURL, name);
-            });
-            menu.appendChild(dropScriptItem);
-        }
-
-        // Edit-in-place via ALTER: every DDL-managed kind opens a pre-filled
-        // alter dialog (name, owner, schema, privilege flags, ...).
-        const ALTER_ITEMS = {
-            database: "Alter Database", role: "Alter Role", schema: "Alter Schema",
-            tablespace: "Alter Tablespace", table: "Alter Table", view: "Alter View",
-            "materialized-view": "Alter Materialized View", sequence: "Alter Sequence",
-            function: "Alter Function", procedure: "Alter Procedure",
-            extension: "Alter Extension", publication: "Alter Publication",
-            index: "Alter Index", trigger: "Alter Trigger", rule: "Alter Rule",
-            "rls-policy": "Alter RLS Policy",
-        };
-        if (ALTER_ITEMS.hasOwnProperty(currentMenuKind)) {
-            menu.appendChild(divider());
-
-            const alterItem = menuItem(ALTER_ITEMS[currentMenuKind], false);
-            alterItem.addEventListener("click", () => {
-                const kind = DDL_KINDS[currentMenuKind] || currentMenuKind;
-                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openDDLPanel("alter", kind, nodeURL, name, ddlFolderID(el, false));
-            });
-            menu.appendChild(alterItem);
-        }
-
-        // Maintenance: Vacuum/Analyze/Cluster/Reindex, offered on the node
-        // kinds Postgres actually supports them against.
-        function submenu(label, entries, onPick) {
-            const row = document.createElement("div");
-            row.className = "relative group";
-            const trigger = document.createElement("button");
-            trigger.className = "w-full text-left px-3 py-1.5 hover:bg-gray-700 flex items-center justify-between";
-            trigger.innerHTML = '<span>' + label + '</span><span class="text-xs text-gray-500">▸</span>';
-            const sub = document.createElement("div");
-            sub.className = "absolute left-full top-0 hidden group-hover:block bg-gray-800 border border-gray-600 rounded shadow-xl py-1 min-w-[10rem]";
-            entries.forEach((entry) => {
-                const item = menuItem(entry[0], false);
-                item.addEventListener("click", () => onPick(entry));
-                sub.appendChild(item);
-            });
-            row.append(trigger, sub);
-            return row;
-        }
-
-        const maintSubmenu = (entries) => submenu("Maintenance", entries,
-            (entry) => openMaintPanel(entry[1], nodeURL, entry[2]));
-        const backupSubmenu = (entries) => submenu("Backup / Restore", entries,
-            (entry) => {
-                if (entry[1] === "storage") openStorageManager();
-                else if (entry[1] === "jobs") openBackupJobs();
-                else openBackupDialog(entry[1], nodeURL);
-            });
-
-        if (currentMenuKind === "server") {
-            menu.appendChild(divider());
-            menu.appendChild(backupSubmenu([
-                ["Backup Globals...", "backup-globals"],
-                ["Storage Manager", "storage"],
-                ["Background Jobs", "jobs"],
-            ]));
-        } else if (currentMenuKind === "schema") {
-            menu.appendChild(divider());
-            menu.appendChild(backupSubmenu([["Backup...", "backup"]]));
-        }
-
-        if (currentMenuKind === "table") {
-            menu.appendChild(divider());
-            menu.appendChild(backupSubmenu([["Backup...", "backup"]]));
-            menu.appendChild(maintSubmenu([
-                ["Vacuum", "vacuum", { target: "table" }],
-                ["Analyze", "analyze", { target: "table" }],
-                ["Cluster", "cluster", {}],
-                ["Reindex Table", "reindex", { reindex_target: "table" }],
-            ]));
-        } else if (currentMenuKind === "database") {
-            menu.appendChild(divider());
-            menu.appendChild(backupSubmenu([
-                ["Backup...", "backup"],
-                ["Restore...", "restore"],
-            ]));
-            menu.appendChild(maintSubmenu([
-                ["Vacuum", "vacuum", { target: "database" }],
-                ["Analyze", "analyze", { target: "database" }],
-                ["Reindex Database", "reindex", { reindex_target: "database" }],
-            ]));
-        } else if (currentMenuKind === "index") {
-            menu.appendChild(divider());
-            const item = menuItem("Reindex Index", false);
-            item.addEventListener("click", () => {
-                const name = (el.dataset.name || "").trim() || objectNameFromURL(nodeURL);
-                openMaintPanel("reindex", nodeURL, { reindex_target: "index", name });
-            });
-            menu.appendChild(item);
-        } else if (currentMenuKind === "schema") {
-            menu.appendChild(divider());
-            const item = menuItem("Reindex Schema", false);
-            item.addEventListener("click", () => openMaintPanel("reindex", nodeURL, { reindex_target: "schema" }));
-            menu.appendChild(item);
-        }
-
-        // "Properties": tables/views derive their /properties endpoint from
-        // the children URL; leaf objects (materialized views, sequences,
-        // functions, indexes, triggers, schemas) carry it directly as
-        // data-props-url.
-        const propsURL = currentMenuKind === "table" || currentMenuKind === "view"
-            ? (currentTableURL ? currentTableURL.replace(/\/children$/, "") + "/properties" : "")
-            : currentPropsURL;
-        if (propsURL) {
-            menu.appendChild(divider());
-            const propsItem = menuItem("Properties", false);
-            propsItem.addEventListener("click", () => openPropertiesTab(propsURL, currentMenuKind));
-            menu.appendChild(propsItem);
-        }
-
-        // "Scripts" submenu entries per node kind. Tables and views fetch the
-        // script from their children URL; materialized views serve a read-only
-        // SELECT script from the same columns-script endpoint.
-        const scriptEntries = [];
-        if (currentMenuKind === "table") {
-            ["CREATE Script", "DELETE Script", "INSERT Script", "SELECT Script", "UPDATE Script"]
-                .forEach((label) => scriptEntries.push({ label, onPick: () => openScriptTab(label, currentTableURL) }));
-        } else if (currentMenuKind === "view") {
-            ["CREATE Script", "INSERT Script", "SELECT Script"]
-                .forEach((label) => scriptEntries.push({ label, onPick: () => openScriptTab(label, currentTableURL) }));
-        } else if (currentMenuKind === "materialized-view") {
-            scriptEntries.push({
-                label: "SELECT Script",
-                onPick: () => openScriptTab("SELECT Script", currentPropsURL.replace(/\/properties$/, "")),
-            });
-        }
-        if (scriptEntries.length > 0) {
-            menu.appendChild(divider());
-            menu.appendChild(scriptsSubmenu(scriptEntries));
-        }
-
-        menu.classList.remove("hidden");
-
-        // Keep the menu inside the viewport.
-        menu.style.left = "0px";
-        menu.style.top = "0px";
-        const rect = menu.getBoundingClientRect();
-        menu.style.left = Math.max(0, Math.min(x, window.innerWidth - rect.width - 4)) + "px";
-        menu.style.top = Math.max(0, Math.min(y, window.innerHeight - rect.height - 4)) + "px";
+        node = el;
+        fetch("/api/context-menu?" + query(el))
+            .then((r) => { if (!r.ok) throw r; return r.text(); })
+            .then((html) => {
+                menu.innerHTML = html;
+                menu.classList.remove("hidden");
+                if (window.htmx) htmx.process(menu);
+                // Keep the menu inside the viewport.
+                menu.style.left = "0px";
+                menu.style.top = "0px";
+                const rect = menu.getBoundingClientRect();
+                menu.style.left = Math.max(0, Math.min(x, window.innerWidth - rect.width - 4)) + "px";
+                menu.style.top = Math.max(0, Math.min(y, window.innerHeight - rect.height - 4)) + "px";
+            })
+            .catch(() => {});
     }
+
+    // Collapses the node's children and greys its status dot, then asks the
+    // server to disconnect it (the backend keeps it disconnected across reloads).
+    function disconnect(url) {
+        const btn = node.querySelector("button[hx-get]");
+        const target = btn && btn.getAttribute("hx-target");
+        const container = target && document.querySelector(target);
+        if (container) container.innerHTML = "";
+        setServerDot(node, "gray");
+        htmx.ajax("POST", url, { swap: "none" });
+    }
+
+    const actions = {
+        refresh: () => refreshTreeNode(node),
+        "query-tool": (d, ctx) => {
+            const conn = connectionFromTreeURL(ctx.tableUrl) || connectionFromTreeURL(ctx.propsUrl);
+            if (conn) openQueryToolTab(conn.serverID, conn.serverName, conn.dbName);
+            else openTab("Query Tool");
+        },
+        panel: (d, ctx) => openDDLPanel(d.action, d.kind, ctx.nodeUrl, d.name || "",
+            d.folder ? ddlFolderID(node, d.folder === "create") : ""),
+        maint: (d, ctx) => openMaintPanel(d.op, ctx.nodeUrl, Object.fromEntries(new URLSearchParams(d.extra || ""))),
+        "drop-script": (d, ctx) => openDropScriptTab(d.kind, ctx.nodeUrl, d.name),
+        properties: (d) => openPropertiesTab(d.url, d.kind),
+        script: (d) => openScriptTab(d.label, d.url),
+        disconnect: (d) => disconnect(d.url),
+    };
+
+    menu.addEventListener("click", (e) => {
+        const item = e.target.closest("[data-act]");
+        const root = menu.firstElementChild;
+        if (item && root && actions[item.dataset.act]) actions[item.dataset.act](item.dataset, root.dataset);
+    });
 
     document.addEventListener("contextmenu", (e) => {
         const item = e.target.closest("li[data-tree-menu]");

@@ -44,8 +44,11 @@ func TestAllPanelsRender(t *testing.T) {
 					t.Errorf("%s %s: panel still contains %s", kind, action, bad)
 				}
 			}
-			if !strings.Contains(body, `data-preview="/api/ddl/`+kind+`/preview"`) {
-				t.Errorf("%s %s: missing preview url", kind, action)
+			if !strings.Contains(body, `hx-post="/api/ddl/`+kind+`/preview"`) {
+				t.Errorf("%s %s: form does not post to the preview endpoint", kind, action)
+			}
+			if strings.Contains(body, "<template") || strings.Contains(body, "onclick=") {
+				t.Errorf("%s %s: panel still carries script (template/onclick)", kind, action)
 			}
 		}
 	}
@@ -54,7 +57,7 @@ func TestAllPanelsRender(t *testing.T) {
 		w := httptest.NewRecorder()
 		s.renderMaintPanel(w, maintModalData{Op: op, ServerID: 1, DB: "db", Schema: "public", Table: "t",
 			ReindexTarget: "table", PanelID: "p2", Values: map[string]string{"target": "table"}, Indexes: []string{"i"}})
-		if w.Code != 200 || !strings.Contains(w.Body.String(), `data-preview="/api/maint/`+op+`/preview"`) {
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `hx-post="/api/maint/`+op+`/preview"`) {
 			t.Errorf("maint %s: status %d, body %.200q", op, w.Code, w.Body.String())
 		}
 	}
@@ -64,6 +67,46 @@ func TestPanelIDPattern(t *testing.T) {
 	for id, want := range map[string]bool{"pnl1": true, "a_b-C9": true, "": false, "a b": false, `a"><x`: false} {
 		if panelIDPattern.MatchString(id) != want {
 			t.Errorf("panelIDPattern(%q) != %v", id, want)
+		}
+	}
+}
+
+func TestColumnRowAndPreview(t *testing.T) {
+	if err := InitTemplates(); err != nil {
+		t.Skipf("templates unavailable: %v", err)
+	}
+	s := &Server{}
+	for variant, want := range map[string]string{"create": `name="col_key"`, "add": `name="add_col_generated"`} {
+		w := httptest.NewRecorder()
+		s.handleDDLColumnRow(w, httptest.NewRequest("GET", "/api/ddl/table/column-row?variant="+variant+"&panel_id=p9", nil))
+		if !strings.Contains(w.Body.String(), want) || !strings.Contains(w.Body.String(), "p9") {
+			t.Errorf("variant %s: %s", variant, w.Body.String())
+		}
+	}
+	w := httptest.NewRecorder()
+	s.handleDDLColumnRow(w, httptest.NewRequest("GET", "/api/ddl/table/column-row?variant=remove", nil))
+	if w.Body.Len() != 0 || w.Header().Get("HX-Trigger") != "panel-changed" {
+		t.Errorf("remove: body %q trigger %q", w.Body.String(), w.Header().Get("HX-Trigger"))
+	}
+	w = httptest.NewRecorder()
+	s.handleDDLColumnRow(w, httptest.NewRequest("GET", "/api/ddl/table/column-row?variant=add&panel_id=%22%3E", nil))
+	if w.Code != 400 {
+		t.Errorf("bad panel id accepted: %d", w.Code)
+	}
+
+	for _, c := range []struct {
+		sql, want string
+		err       error
+		notWant   string
+	}{
+		{"DROP TABLE t", `<pre data-sql>DROP TABLE t</pre>`, nil, "data-panel-error"},
+		{"", `data-panel-error>Name is required.`, formErr("Name is required."), "<pre"},
+		{"", `<pre data-sql></pre>`, formErr("No changes requested."), "data-panel-error"},
+	} {
+		w := httptest.NewRecorder()
+		renderPreview(w, c.sql, c.err)
+		if !strings.Contains(w.Body.String(), c.want) || strings.Contains(w.Body.String(), c.notWant) {
+			t.Errorf("renderPreview(%q, %v) = %s", c.sql, c.err, w.Body.String())
 		}
 	}
 }

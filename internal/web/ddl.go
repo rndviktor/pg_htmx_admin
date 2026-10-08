@@ -152,8 +152,10 @@ type ddlModalData struct {
 	// rerender-with-error so the choice survives a failed submit.
 	FKRefColumns      []string
 	FKRefColsSelected []string
-	// PanelID makes the element ids of a panel unique per script tab.
-	PanelID string
+	// PanelID makes the element ids of a panel unique per script tab; ResetURL
+	// re-fetches the same panel (the Reset button).
+	PanelID  string
+	ResetURL string
 	// Action is "create", "alter" or "drop"; Title, PreviewURL and ConnDB are
 	// filled in by renderDDLPanel for the panel header, live-SQL endpoint and
 	// the database the script tab runs the SQL on.
@@ -1965,6 +1967,7 @@ func (s *Server) renderDDLPanel(w http.ResponseWriter, r *http.Request, m ddlMod
 	m.PreviewURL = "/api/ddl/" + m.Kind + "/preview"
 	m.Title = panelTitle(m.Action, m.KindLabel, m.Schema, m.Name)
 	m.ConnDB = s.panelConnDB(r.Context(), m.ServerID, m.DB)
+	m.ResetURL = r.URL.RequestURI()
 	RenderPartial(w, m.Partial, m)
 }
 
@@ -2228,31 +2231,36 @@ func (s *Server) handleDDLPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sqlStr, err := renderCreateDDL(kind, r.Form)
-	contents := sqlStr
-	if r.FormValue("mode") == "drop" {
-		// The Drop panel shares the preview endpoint as well.
-		if sqlStr, err = ddlKinds[kind].BuildDrop(formValues(r.Form)); err != nil {
-			contents = "Error: " + err.Error()
-		} else {
-			contents = sqlStr
-		}
-	} else if r.FormValue("mode") == "alter" {
-		// The alter dialog shares the preview endpoint; mode=alter routes the
-		// form values through the kind's alter builder instead of the create
-		// builder.
-		k := ddlKinds[kind]
+	var sqlStr string
+	var err error
+	switch k := ddlKinds[kind]; r.FormValue("mode") {
+	case "drop":
+		sqlStr, err = k.BuildDrop(formValues(r.Form))
+	case "alter":
+		// mode=alter routes the form values through the kind's alter builder
+		// instead of the create builder.
 		if !k.hasAlter() {
-			contents = "Error: altering this object kind is not supported."
-		} else if sqlStr, err = k.runAlter(r.Form); err != nil {
-			contents = "Error: " + err.Error()
+			err = formErr("altering this object kind is not supported.")
 		} else {
-			contents = sqlStr
+			sqlStr, err = k.runAlter(r.Form)
 		}
-	} else if err != nil {
-		contents = "Error: " + err.Error()
+	default:
+		sqlStr, err = renderCreateDDL(kind, r.Form)
 	}
-	RenderPartial(w, "ddl_preview.html", map[string]any{"Contents": contents})
+	renderPreview(w, sqlStr, err)
+}
+
+// renderPreview answers a panel's live-SQL request: the statements, or the
+// builder's complaint. "No changes requested" is an empty result, not an error.
+func renderPreview(w http.ResponseWriter, sqlStr string, err error) {
+	data := map[string]any{"Contents": sqlStr}
+	if err != nil {
+		data["Contents"] = ""
+		if msg := err.Error(); !strings.HasPrefix(msg, "No changes requested") {
+			data["Error"] = msg
+		}
+	}
+	RenderPartial(w, "ddl_preview.html", data)
 }
 
 // handleDDLDropScript generates the same DROP SQL handleDDLDrop would run,
@@ -2564,4 +2572,21 @@ func (s *Server) panelConnDB(ctx context.Context, sid int64, db string) string {
 		return ""
 	}
 	return srv.MaintenanceDb
+}
+
+// handleDDLColumnRow serves the Create / Alter Table panels' column rows:
+// variant "create" or "add" returns a blank row to append, "remove" returns an
+// empty body that replaces the row and tells the form to refresh its SQL.
+func (s *Server) handleDDLColumnRow(w http.ResponseWriter, r *http.Request) {
+	variant := r.URL.Query().Get("variant")
+	if variant == "remove" {
+		w.Header().Set("HX-Trigger", "panel-changed")
+		return
+	}
+	panelID := r.URL.Query().Get("panel_id")
+	if (variant != "create" && variant != "add") || !panelIDPattern.MatchString(panelID) {
+		http.Error(w, "Invalid column row request", http.StatusBadRequest)
+		return
+	}
+	RenderPartial(w, "ddl_col_row.html", map[string]string{"Variant": variant, "PanelID": panelID})
 }

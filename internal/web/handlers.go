@@ -81,10 +81,12 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/listen/stream", s.handleListenStream)
 		r.Post("/api/listen/close", s.handleListenClose)
 
+		r.Get("/api/context-menu", s.handleContextMenu)
 		r.Get("/api/ddl/{kind}/panel", s.handleDDLPanel)
 		r.Post("/api/ddl/{kind}/preview", s.handleDDLPreview)
 		r.Get("/api/ddl/{kind}/drop-script", s.handleDDLDropScript)
 		r.Get("/api/ddl/table/fk-ref-columns", s.handleDDLFKRefColumns)
+		r.Get("/api/ddl/table/column-row", s.handleDDLColumnRow)
 
 		r.Get("/api/maint/{op}/panel", s.handleMaintPanel)
 		r.Post("/api/maint/{op}/preview", s.handleMaintPreview)

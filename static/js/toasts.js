@@ -124,6 +124,12 @@
             showToast(msg, "error");
         });
 
+        // Server-sent toasts: HX-Trigger {"pg-toast": {"message", "type"}}.
+        document.body.addEventListener("pg-toast", function (evt) {
+            const d = evt.detail || {};
+            if (d.message) showToast(d.message, d.type || "info");
+        });
+
         document.body.addEventListener("htmx:sendError", function () {
             showToast("Network error: could not reach the server.", "error");
         });

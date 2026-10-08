@@ -43,7 +43,7 @@ that is missing, ordered by priority.
   in the Notifications tab for notices raised during a run
   (`internal/web/notices.go`, `static/js/transactions.js`), **visual
   EXPLAIN** (F7 / Shift+F7: `POST /api/explain` runs `EXPLAIN (FORMAT
-  JSON)`, and `static/js/explain.js` renders a tree with exclusive-time
+  JSON)`, and `internal/web/explain_plan.go` + `templates/partials/explain_plan.html` render a tree (native `<details>`, no script) with exclusive-time
   bars, estimate vs actual rows, hotspot / misestimate / seq-scan-filter /
   spill badges, a sortable table and raw JSON; ANALYZE always runs in a
   transaction that is rolled back, so INSERT/UPDATE/DELETE leave no trace;
@@ -106,7 +106,11 @@ that is missing, ordered by priority.
   Script remain modals (`internal/web/ddl.go` `handleDDLPanel`,
   `internal/web/maintenance.go` `handleMaintPanel`,
   `templates/partials/ddl_*_panel.html`, `maint_panel.html`,
-  `static/js/ddl-panel.js`).
+  `static/js/ddl-panel.js`). The forms are htmx all the way: the form posts to
+  the SQL builder on every change, Reset and column rows are server round trips,
+  and the right-click menu and EXPLAIN view are rendered by Go templates
+  (`internal/web/contextmenu.go`, `explain_plan.go`); Chart.js loads only when
+  the Monitoring dashboard first draws a chart.
 - **DDL forms (Create / Drop / Alter)**: form-based generate-then-preview-then-run (now shown in the side panels above)
   for 15 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index,

@@ -1,15 +1,15 @@
-<div id="ddl-panel-{{ .PanelID }}" class="ddl-panel" data-panel-id="{{ .PanelID }}" data-preview="{{ .PreviewURL }}" data-action="{{ .Action }}" data-folder="{{ .FolderID }}" data-db="{{ .ConnDB }}">
+<div id="ddl-panel-{{ .PanelID }}" class="ddl-panel" data-action="{{ .Action }}" data-folder="{{ .FolderID }}" data-db="{{ .ConnDB }}">
     <div class="flex justify-between items-center px-4 py-2 border-b border-gray-700">
         <h3 class="text-sm font-bold text-white">{{ .Title }}</h3>
         <div class="flex items-center gap-2">
-            <button type="button" data-panel-reset class="px-2 py-1 text-xs text-gray-300 hover:text-white border border-gray-600 rounded" title="Reload the form from the current definition (use after running the SQL)">Reset</button>
-            <button type="button" data-panel-collapse class="px-2 py-1 text-sm text-gray-300 hover:text-white border border-gray-600 rounded" title="Hide this panel">&lt;&lt;</button>
+            <button type="button" data-panel-reset hx-get="{{ .ResetURL }}" hx-target="#ddl-panel-{{ .PanelID }}" hx-swap="outerHTML" class="px-2 py-1 text-xs text-gray-300 hover:text-white border border-gray-600 rounded" title="Reload the form from the current definition (use after running the SQL)">Reset</button>
+            <button type="button" data-panel-toggle class="px-2 py-1 text-sm text-gray-300 hover:text-white border border-gray-600 rounded" title="Hide this panel">&lt;&lt;</button>
         </div>
     </div>
-    <div data-panel-status class="hidden px-4 py-1 text-xs text-yellow-400"></div>
+    <div id="ddl-out-{{ .PanelID }}" class="ddl-out"></div>
     {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 m-3">{{ .Error }}</div>{{ end }}
 
-    <form class="space-y-4 p-4" onsubmit="return false">
+    <form hx-post="{{ .PreviewURL }}" hx-trigger="{{ if ne .Action "create" }}load, {{ end }}input changed delay:400ms, change, panel-changed" hx-target="#ddl-out-{{ .PanelID }}" hx-sync="this:replace" class="space-y-4 p-4" onsubmit="return false">
             <input type="hidden" name="server_id" value="{{ .ServerID }}">
             <input type="hidden" name="db" value="{{ .DB }}">
             <input type="hidden" name="schema" value="{{ .Schema }}">

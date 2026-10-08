@@ -157,6 +157,7 @@ type maintModalData struct {
 	// Side-panel fields (see ddlModalData): the panel id, header, live-SQL
 	// endpoint and the database the script tab runs the SQL on.
 	PanelID    string
+	ResetURL   string
 	Title      string
 	PreviewURL string
 	ConnDB     string
@@ -248,6 +249,7 @@ func (s *Server) handleMaintPanel(w http.ResponseWriter, r *http.Request) {
 
 	s.renderMaintPanel(w, maintModalData{
 		PanelID:       panelID,
+		ResetURL:      r.URL.RequestURI(),
 		Op:            op,
 		ServerID:      sid,
 		DB:            dbName,
@@ -276,9 +278,6 @@ func (s *Server) handleMaintPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contents, err := o.Build(formValues(r.Form))
-	if err != nil {
-		contents = "Error: " + err.Error()
-	}
-	RenderPartial(w, "ddl_preview.html", map[string]any{"Contents": contents})
+	sqlStr, err := o.Build(formValues(r.Form))
+	renderPreview(w, sqlStr, err)
 }

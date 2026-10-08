@@ -1,1 +1,1 @@
-<pre class="text-xs font-mono text-gray-300">{{ .Contents }}</pre>
+{{ if .Error }}<div data-panel-error>{{ .Error }}</div>{{ else }}<pre data-sql>{{ .Contents }}</pre>{{ end }}

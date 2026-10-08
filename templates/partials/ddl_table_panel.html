@@ -1,15 +1,15 @@
-<div id="ddl-panel-{{ .PanelID }}" class="ddl-panel" data-panel-id="{{ .PanelID }}" data-preview="{{ .PreviewURL }}" data-action="{{ .Action }}" data-folder="{{ .FolderID }}" data-db="{{ .ConnDB }}">
+<div id="ddl-panel-{{ .PanelID }}" class="ddl-panel" data-action="{{ .Action }}" data-folder="{{ .FolderID }}" data-db="{{ .ConnDB }}">
     <div class="flex justify-between items-center px-4 py-2 border-b border-gray-700">
         <h3 class="text-sm font-bold text-white">{{ .Title }}</h3>
         <div class="flex items-center gap-2">
-            <button type="button" data-panel-reset class="px-2 py-1 text-xs text-gray-300 hover:text-white border border-gray-600 rounded" title="Reload the form from the current definition (use after running the SQL)">Reset</button>
-            <button type="button" data-panel-collapse class="px-2 py-1 text-sm text-gray-300 hover:text-white border border-gray-600 rounded" title="Hide this panel">&lt;&lt;</button>
+            <button type="button" data-panel-reset hx-get="{{ .ResetURL }}" hx-target="#ddl-panel-{{ .PanelID }}" hx-swap="outerHTML" class="px-2 py-1 text-xs text-gray-300 hover:text-white border border-gray-600 rounded" title="Reload the form from the current definition (use after running the SQL)">Reset</button>
+            <button type="button" data-panel-toggle class="px-2 py-1 text-sm text-gray-300 hover:text-white border border-gray-600 rounded" title="Hide this panel">&lt;&lt;</button>
         </div>
     </div>
-    <div data-panel-status class="hidden px-4 py-1 text-xs text-yellow-400"></div>
+    <div id="ddl-out-{{ .PanelID }}" class="ddl-out"></div>
     {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 m-3">{{ .Error }}</div>{{ end }}
 
-    <form class="space-y-4 p-4" onsubmit="return false">
+    <form hx-post="{{ .PreviewURL }}" hx-trigger="{{ if ne .Action "create" }}load, {{ end }}input changed delay:400ms, change, panel-changed" hx-target="#ddl-out-{{ .PanelID }}" hx-sync="this:replace" class="space-y-4 p-4" onsubmit="return false">
             <input type="hidden" name="server_id" value="{{ .ServerID }}">
             <input type="hidden" name="folder_id" value="{{ .FolderID }}">
             <input type="hidden" name="db" value="{{ .DB }}">
@@ -54,7 +54,7 @@
                             <option value="pk" {{ if eq (index .Values "col_key") "pk" }}selected{{ end }}>PK</option>
                             <option value="uniq" {{ if eq (index .Values "col_key") "uniq" }}selected{{ end }}>UQ</option>
                         </select>
-                        <button type="button" onclick="ddlRemoveColumnRow(this, 'ddl-columns-{{ .PanelID }}')"
+                        <button type="button" hx-get="/api/ddl/table/column-row?variant=remove" hx-target="closest [data-col-row]" hx-swap="outerHTML"
                                 class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
                     </div>
                     <div data-col-row class="ddl-col-row">
@@ -75,11 +75,11 @@
                             <option value="pk">PK</option>
                             <option value="uniq">UQ</option>
                         </select>
-                        <button type="button" onclick="ddlRemoveColumnRow(this, 'ddl-columns-{{ .PanelID }}')"
+                        <button type="button" hx-get="/api/ddl/table/column-row?variant=remove" hx-target="closest [data-col-row]" hx-swap="outerHTML"
                                 class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
                     </div>
                 </div>
-                <button type="button" onclick="ddlAddColumnRow('ddl-columns-{{ .PanelID }}', 'ddl-colrow-tpl-{{ .PanelID }}')"
+                <button type="button" hx-get="/api/ddl/table/column-row?variant=create&panel_id={{ .PanelID }}" hx-target="#ddl-columns-{{ .PanelID }}" hx-swap="beforeend"
                         class="mt-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-xs border border-gray-600">+ Add column</button>
             </div>
 
@@ -199,29 +199,6 @@
                 </div>
             </div>
     </form>
-<template id="ddl-colrow-tpl-{{ .PanelID }}">
-    <div data-col-row class="ddl-col-row">
-        <input type="text" name="col_name" placeholder="column" autocomplete="off" spellcheck="false"
-               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Column name">
-        <input type="text" name="col_type" list="ddl-coltypes-{{ .PanelID }}" placeholder="text" autocomplete="off" spellcheck="false"
-               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Data type">
-        <select name="col_nullable" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Nullable">
-            <option value="YES" selected>NULL</option>
-            <option value="NO">NOT NULL</option>
-        </select>
-        <input type="text" name="col_default" placeholder="default" autocomplete="off" spellcheck="false"
-               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Default expression">
-        <input type="text" name="col_generated" placeholder="generated as" autocomplete="off" spellcheck="false"
-               class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Generated column expression (STORED)">
-        <select name="col_key" class="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded p-2 text-white text-xs" title="Primary key / unique">
-            <option value="" selected>-</option>
-            <option value="pk">PK</option>
-            <option value="uniq">UQ</option>
-        </select>
-        <button type="button" onclick="ddlRemoveColumnRow(this, 'ddl-columns-{{ .PanelID }}')"
-                class="text-red-400 hover:text-red-300 text-xs px-1" title="Remove column">&#10005;</button>
-    </div>
-</template>
 
 <datalist id="ddl-coltypes-{{ .PanelID }}">
     <option value="bigint"></option>

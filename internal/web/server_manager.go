@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -533,7 +534,7 @@ func (s *Server) handleServerReloadConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, map[string]string{"status": "ok"})
+	toastTrigger(w, "Configuration reloaded.", "success")
 }
 
 // handleServerCreateRestorePoint runs pg_create_restore_point(name) on the
@@ -549,7 +550,11 @@ func (s *Server) handleServerCreateRestorePoint(w http.ResponseWriter, r *http.R
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
-	name := strings.TrimSpace(r.FormValue("name"))
+	// The context menu sends the name through htmx's hx-prompt header.
+	name := strings.TrimSpace(r.Header.Get("HX-Prompt"))
+	if name == "" {
+		name = strings.TrimSpace(r.FormValue("name"))
+	}
 	if name == "" {
 		http.Error(w, "Restore point name is required", http.StatusBadRequest)
 		return
@@ -563,5 +568,17 @@ func (s *Server) handleServerCreateRestorePoint(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	writeJSON(w, map[string]string{"status": "ok", "lsn": lsn})
+	toastTrigger(w, "Restore point created at "+lsn+".", "success")
+}
+
+// toastTrigger answers an htmx request that swaps nothing with a toast the
+// client shows (the "pg-toast" listener in toasts.js).
+func toastTrigger(w http.ResponseWriter, message, kind string) {
+	trigger, err := json.Marshal(map[string]map[string]string{"pg-toast": {"message": message, "type": kind}})
+	if err != nil {
+		log.Printf("toast trigger: %v", err)
+		return
+	}
+	w.Header().Set("HX-Trigger", string(trigger))
+	w.WriteHeader(http.StatusNoContent)
 }
