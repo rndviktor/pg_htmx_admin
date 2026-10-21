@@ -43,7 +43,7 @@
     <!-- Connection header -->
     <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-6 flex items-center justify-between">
         <div>
-            <h1 class="text-lg font-bold text-white">Database Monitoring</h1>
+            <h1 class="text-lg font-bold text-white" id="monitoring-title">Database Monitoring</h1>
             <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold" id="monitoring-conn-label">Select a database to view its health metrics</p>
         </div>
         <div class="flex items-center gap-2">
@@ -76,7 +76,7 @@
         </div>
         <!-- Database Size -->
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col justify-between min-h-[90px]">
-            <span class="text-xs text-gray-400 font-medium">Database Size</span>
+            <span class="text-xs text-gray-400 font-medium" id="kpi-size-label">Database Size</span>
             <div class="flex items-baseline justify-between">
                 <span class="text-3xl font-bold text-blue-400" id="kpi-db-size">–</span>
             </div>
@@ -134,8 +134,59 @@
         </div>
     </div>
 
-    <!-- 3. Sessions / Locks / Prepared Transactions -->
-    <div class="space-y-4 mb-6">
+    <!-- Sessions by state and server-wide I/O, WAL and checkpoint graphs. The
+         cards for statistics the server version lacks are hidden by monitoring.js. -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Sessions by State</h3>
+            <div class="h-64"><canvas id="chart-sessions"></canvas></div>
+        </div>
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Temp Bytes / sec and Deadlocks / sec</h3>
+            <div class="h-64"><canvas id="chart-temp"></canvas></div>
+        </div>
+        <div id="card-io" class="hidden bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Block I/O (server-wide, PostgreSQL 16+)</h3>
+            <div class="h-64"><canvas id="chart-io"></canvas></div>
+        </div>
+        <div id="card-wal" class="hidden bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">WAL Generation (PostgreSQL 14+)</h3>
+            <div class="h-64"><canvas id="chart-wal"></canvas></div>
+        </div>
+        <div id="card-ckpt" class="hidden bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Checkpoints and Buffers Written / sec</h3>
+            <div class="h-64"><canvas id="chart-ckpt"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Server dashboard only: one line per database -->
+    <div id="monitoring-server-only" class="hidden border border-gray-700 rounded bg-gray-800 shadow-sm overflow-hidden mb-6">
+        <div class="bg-gray-700/50 border-b border-gray-700 px-3 py-2 text-xs font-semibold text-gray-400">
+            Databases
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-gray-300 border-collapse">
+                <thead class="bg-gray-700/50 border-b border-gray-700 text-gray-400 font-semibold select-none">
+                    <tr>
+                        <th class="p-2 border-r border-gray-700">Database</th>
+                        <th class="p-2 border-r border-gray-700">Size</th>
+                        <th class="p-2 border-r border-gray-700">Backends</th>
+                        <th class="p-2 border-r border-gray-700">Commits</th>
+                        <th class="p-2 border-r border-gray-700">Rollbacks</th>
+                        <th class="p-2 border-r border-gray-700">Cache hit</th>
+                        <th class="p-2 border-r border-gray-700">Temp bytes</th>
+                        <th class="p-2">Deadlocks</th>
+                    </tr>
+                </thead>
+                <tbody id="server-databases-tbody" class="divide-y divide-gray-700/50 font-mono text-[11px]">
+                    <tr><td colspan="8" class="py-6 text-center text-gray-500 font-sans text-xs">Loading databases...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 3. Sessions / Locks / Prepared Transactions (database dashboard only) -->
+    <div id="monitoring-db-only" class="space-y-4 mb-6">
 
         <!-- ===== SESSIONS SECTION ===== -->
         <div id="sessions-section" class="border border-gray-700 rounded bg-gray-800 shadow-sm overflow-hidden">

@@ -16,8 +16,54 @@ let monitoringState = {
 };
 const chartSeries = {
     cacheHit: [], replication: [], tps: [], ins: [], upd: [], del: [], time: [],
+    sessActive: [], sessIdleTx: [], sessIdle: [],
+    ioReads: [], ioWrites: [], ioHits: [], walBytes: [], walFpi: [],
+    ckptTimed: [], ckptReq: [], ckptBuf: [], tempBytes: [], deadlocks: [],
 };
 let charts = {};
+
+// Cumulative server counters charted as per-second rates: series -> getter.
+// A getter returns undefined when the server version lacks the statistic.
+const clusterOf = (d, group, key) => d.cluster && d.cluster[group] ? d.cluster[group][key] : undefined;
+const RATE_SERIES = {
+    ioReads: (d) => clusterOf(d, "io", "reads"),
+    ioWrites: (d) => clusterOf(d, "io", "writes"),
+    ioHits: (d) => clusterOf(d, "io", "hits"),
+    walBytes: (d) => clusterOf(d, "wal", "bytes"),
+    walFpi: (d) => clusterOf(d, "wal", "fpi"),
+    ckptTimed: (d) => clusterOf(d, "checkpoints", "timed"),
+    ckptReq: (d) => clusterOf(d, "checkpoints", "requested"),
+    ckptBuf: (d) => clusterOf(d, "checkpoints", "buffersWritten"),
+    tempBytes: (d) => d.tempBytes,
+    deadlocks: (d) => d.deadlocks,
+};
+let rateBaseline = {};
+let rateSampledAt = 0;
+
+// Pushes the per-second rate of every RATE_SERIES counter since the last sample.
+// The first sample only records the baseline.
+function sampleRates(data) {
+    const now = performance.now();
+    const dt = rateSampledAt ? (now - rateSampledAt) / 1000 : 0;
+    Object.keys(RATE_SERIES).forEach((key) => {
+        const v = RATE_SERIES[key](data);
+        if (v === undefined || v === null) return;
+        if (dt > 0 && rateBaseline[key] !== undefined) {
+            chartSeries[key].push(Math.max(0, (v - rateBaseline[key]) / dt));
+        }
+        rateBaseline[key] = v;
+    });
+    rateSampledAt = now;
+}
+
+// Cards for statistics the server version lacks stay hidden.
+function updateStatCards(data) {
+    const has = (group) => !!(data.cluster && data.cluster[group]);
+    [["card-io", "io"], ["card-wal", "wal"], ["card-ckpt", "checkpoints"]].forEach(([id, group]) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle("hidden", !has(group));
+    });
+}
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 
@@ -123,6 +169,31 @@ function drawMonitoringCharts() {
         { label: "Updates/s", data: chartSeries.upd, borderColor: "#eab308", tension: 0.3, pointRadius: 0 },
         { label: "Deletes/s", data: chartSeries.del, borderColor: "#ef4444", tension: 0.3, pointRadius: 0 },
     ]);
+
+    const line = (label, data, color) => ({ label, data, borderColor: color, tension: 0.3, pointRadius: 0 });
+    upsertChart("chart-sessions", [
+        line("Active", chartSeries.sessActive, "#22c55e"),
+        line("Idle in transaction", chartSeries.sessIdleTx, "#eab308"),
+        line("Idle", chartSeries.sessIdle, "#3b82f6"),
+    ]);
+    upsertChart("chart-temp", [
+        line("Temp bytes/s", chartSeries.tempBytes, "#a855f7"),
+        line("Deadlocks/s", chartSeries.deadlocks, "#ef4444"),
+    ]);
+    upsertChart("chart-io", [
+        line("Reads/s", chartSeries.ioReads, "#3b82f6"),
+        line("Writes/s", chartSeries.ioWrites, "#eab308"),
+        line("Buffer hits/s", chartSeries.ioHits, "#22c55e"),
+    ]);
+    upsertChart("chart-wal", [
+        line("WAL bytes/s", chartSeries.walBytes, "#a855f7"),
+        line("Full-page images/s", chartSeries.walFpi, "#ef4444"),
+    ]);
+    upsertChart("chart-ckpt", [
+        line("Timed checkpoints/s", chartSeries.ckptTimed, "#22c55e"),
+        line("Requested checkpoints/s", chartSeries.ckptReq, "#ef4444"),
+        line("Buffers written/s", chartSeries.ckptBuf, "#3b82f6"),
+    ]);
 }
 
 function updateKPIs(data) {
@@ -161,7 +232,9 @@ function refreshMonitoring() {
         })
         .then((data) => {
             updateKPIs(data);
-            refreshAdminTables();
+            updateStatCards(data);
+            if (monitoringConn && monitoringConn.dbName) refreshAdminTables();
+            else refreshServerDatabases();
 
             // The first sample only establishes the baseline for the
             // cumulative counters (pg_stat_* hold totals since start),
@@ -175,6 +248,7 @@ function refreshMonitoring() {
                 monitoringState.inserts = data.inserts;
                 monitoringState.updates = data.updates;
                 monitoringState.deletes = data.deletes;
+                sampleRates(data);
                 renderMonitoringCharts();
                 return;
             }
@@ -206,6 +280,12 @@ function refreshMonitoring() {
             // Replication lag.
             chartSeries.replication.push(
                 data.hasReplication ? data.replicationLagBytes : 0);
+
+            // Sessions by state, and per-second rates of the server counters.
+            chartSeries.sessActive.push(data.activeTx);
+            chartSeries.sessIdleTx.push(data.idleTx);
+            chartSeries.sessIdle.push(data.idle);
+            sampleRates(data);
 
             // Keep a rolling window of ~30 points.
             chartSeries.time.push(new Date().toLocaleTimeString());
@@ -249,7 +329,8 @@ function setDashboardTabLabel(monitoring) {
 // tab is active.
 function openMonitoringKPIStream() {
     closeMonitoringKPIStream();
-    if (!monitoringConn || activeTabId !== TAB_DASHBOARD) return;
+    // The server dashboard has no per-database KPI stream.
+    if (!monitoringConn || !monitoringConn.dbName || activeTabId !== TAB_DASHBOARD) return;
     const src = new EventSource(
         "/api/servers/" + encodeURIComponent(monitoringConn.serverID) +
         "/databases/" + encodeURIComponent(monitoringConn.dbName) + "/monitoring/stream");
@@ -265,9 +346,14 @@ function closeMonitoringKPIStream() {
     if (monitoringSource) { monitoringSource.close(); monitoringSource = null; }
 }
 
+// Starts the dashboard for a database, or for a whole server when dbName is
+// empty (aggregates over every database; see monitoring_stats.go).
 function startMonitoring(serverID, dbName) {
-    monitoringBaseURL = "/api/servers/" + serverID + "/databases/" + dbName + "/monitoring";
-    monitoringConn = { serverID: serverID, dbName: dbName };
+    const serverMode = !dbName;
+    monitoringBaseURL = serverMode
+        ? "/api/servers/" + serverID + "/monitoring"
+        : "/api/servers/" + serverID + "/databases/" + dbName + "/monitoring";
+    monitoringConn = { serverID: serverID, dbName: dbName || "" };
     setDashboardTabLabel(true);
 
     // Reset cumulative counters so the first sample establishes a clean
@@ -276,20 +362,52 @@ function startMonitoring(serverID, dbName) {
     destroyCharts();
     monitoringInitialized = false;
     monitoringState = { blksHit: 0, blksRead: 0, xactCommit: 0, xactRollback: 0, inserts: 0, updates: 0, deletes: 0 };
+    rateBaseline = {};
+    rateSampledAt = 0;
     Object.values(chartSeries).forEach((series) => { series.length = 0; });
 
     const defaultView = document.getElementById("dashboard-default");
     const monView = document.getElementById("dashboard-monitoring");
     if (defaultView) defaultView.classList.add("hidden");
     if (monView) monView.classList.remove("hidden");
+    setMonitoringMode(serverMode);
     const label = document.getElementById("monitoring-conn-label");
-    if (label) label.textContent = dbName + " (server " + serverID + ")";
+    if (label) {
+        label.textContent = serverMode
+            ? (serverNameForID(serverID) || "server " + serverID) + " (all databases)"
+            : dbName + " (server " + serverID + ")";
+    }
 
     // Initial render, then poll charts while the Dashboard tab is active.
     renderMonitoringCharts();
     if (activeTabId !== TAB_DASHBOARD) return;
     pollMonitoring();
-    openMonitoringKPIStream();
+    if (serverMode) closeMonitoringKPIStream();
+    else openMonitoringKPIStream();
+}
+
+// Toggles the parts of the dashboard that only exist for one scope.
+function setMonitoringMode(serverMode) {
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set("monitoring-title", serverMode ? "Server Monitoring" : "Database Monitoring");
+    set("kpi-size-label", serverMode ? "Total Size" : "Database Size");
+    const dbOnly = document.getElementById("monitoring-db-only");
+    const serverOnly = document.getElementById("monitoring-server-only");
+    if (dbOnly) dbOnly.classList.toggle("hidden", serverMode);
+    if (serverOnly) serverOnly.classList.toggle("hidden", !serverMode);
+}
+
+// Fills the server dashboard's per-database table (server-rendered rows).
+function refreshServerDatabases() {
+    const tbody = document.getElementById("server-databases-tbody");
+    if (!tbody || !monitoringConn) return;
+    fetch("/api/servers/" + encodeURIComponent(monitoringConn.serverID) + "/monitoring/databases", { credentials: "same-origin" })
+        .then((r) => { if (!r.ok) throw r; return r.text(); })
+        .then((html) => { tbody.innerHTML = html; })
+        .catch(async (err) => {
+            const msg = err && err.text ? await err.text() : "request failed";
+            tbody.replaceChildren(emptyRow(8, msg));
+        });
 }
 
 function pollMonitoring() {
@@ -327,8 +445,11 @@ function stopMonitoring() {
 function updateDashboardForTreeSelection(btn) {
     const url = btn ? btn.getAttribute("hx-get") : null;
     const conn = connectionFromTreeURL(url);
+    const server = parseServerDBURL(url);
     if (conn) {
         startMonitoring(conn.serverID, conn.dbName);
+    } else if (/^\d+$/.test(server.serverID || "")) {
+        startMonitoring(server.serverID, "");
     } else {
         stopMonitoring();
     }
@@ -341,7 +462,7 @@ function updateDashboardForTreeSelection(btn) {
 // -----------------------------------------------------------------------------
 
 function adminParams(extra) {
-    if (!monitoringConn) return null;
+    if (!monitoringConn || !monitoringConn.dbName) return null;
     const params = new URLSearchParams({
         server_id: monitoringConn.serverID,
         db_name: monitoringConn.dbName,

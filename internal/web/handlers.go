@@ -132,6 +132,8 @@ func (s *Server) Routes() http.Handler {
 				r.Post("/reload-config", s.handleServerReloadConfig)
 				r.Post("/restore-point", s.handleServerCreateRestorePoint)
 				r.Get("/children", s.handleServerChildren)
+				r.Get("/monitoring", s.handleServerMonitoring)
+				r.Get("/monitoring/databases", s.handleServerMonitoringDatabases)
 				r.Get("/databases", s.handleServerDatabases)
 				r.Get("/roles", s.handleServerRoles)
 				r.Get("/tablespaces", s.handleServerTablespaces)

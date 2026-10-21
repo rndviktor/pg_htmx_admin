@@ -38,6 +38,14 @@ type monitoringResponse struct {
 	Inserts int64 `json:"inserts"`
 	Updates int64 `json:"updates"`
 	Deletes int64 `json:"deletes"`
+
+	TempFiles int64 `json:"tempFiles"`
+	TempBytes int64 `json:"tempBytes"`
+	Deadlocks int64 `json:"deadlocks"`
+
+	// Cluster holds the version-dependent checkpoint / WAL / I/O counters
+	// (monitoring_stats.go); absent groups are omitted.
+	Cluster *clusterStats `json:"cluster,omitempty"`
 }
 
 // handleMonitoring returns the current health snapshot for the database
@@ -161,6 +169,7 @@ func queryMonitoring(r *http.Request, pool *pgxpool.Pool) (*monitoringResponse, 
 		return nil, err
 	}
 
+	addDatabaseExtras(ctx, pool, resp)
 	return resp, nil
 }
 

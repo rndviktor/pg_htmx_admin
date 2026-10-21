@@ -659,7 +659,7 @@ function currentHistoryConnection() {
             return { serverID: params.sid.value, dbName: params.db.value };
         }
     }
-    if (monitoringConn) return { serverID: String(monitoringConn.serverID), dbName: monitoringConn.dbName };
+    if (monitoringConn && monitoringConn.dbName) return { serverID: String(monitoringConn.serverID), dbName: monitoringConn.dbName };
     return null;
 }
 

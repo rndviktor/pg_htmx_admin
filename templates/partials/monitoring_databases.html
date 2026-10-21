@@ -1,0 +1,14 @@
+{{ range . }}
+<tr>
+    <td class="p-2 border-r border-gray-700 text-white">{{ .Name }}</td>
+    <td class="p-2 border-r border-gray-700">{{ .Size }}</td>
+    <td class="p-2 border-r border-gray-700">{{ .Backends }}</td>
+    <td class="p-2 border-r border-gray-700">{{ .Commits }}</td>
+    <td class="p-2 border-r border-gray-700">{{ .Rollbacks }}</td>
+    <td class="p-2 border-r border-gray-700">{{ .CacheHit }}</td>
+    <td class="p-2 border-r border-gray-700">{{ .TempBytes }}</td>
+    <td class="p-2">{{ .Deadlocks }}</td>
+</tr>
+{{ else }}
+<tr><td colspan="8" class="py-6 text-center text-gray-500 font-sans text-xs">No databases.</td></tr>
+{{ end }}

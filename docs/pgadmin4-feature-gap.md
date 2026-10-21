@@ -61,7 +61,16 @@ that is missing, ordered by priority.
   SSE updates.
 - **Monitoring dashboard**: KPI cards and Chart.js time-series graphs
   (connections, transactions, cache hit ratio, replication lag, DML activity)
-  fed by polling plus an SSE stream (`internal/web/monitoring.go`).
+  fed by polling plus an SSE stream (`internal/web/monitoring.go`). Extended
+  with a **server-level dashboard** (select a server node: totals over every
+  database plus a per-database table of size, backends, commits, rollbacks,
+  cache hit, temp bytes and deadlocks) and extra graphs on both dashboards:
+  sessions by state, temp bytes and deadlocks per second, block I/O
+  (`pg_stat_io`, PG 16+), WAL generation (`pg_stat_wal`, PG 14+) and
+  checkpoints / buffers written (`pg_stat_checkpointer` on PG 17+, otherwise
+  `pg_stat_bgwriter`). Statistics a server version lacks are hidden; rates are
+  per second from counter deltas (`internal/web/monitoring_stats.go`,
+  `/api/servers/{id}/monitoring[/databases]`).
 - **Server administration**: sessions list with cancel/terminate, locks list,
   prepared transactions list (`internal/web/activity.go`). Per-server and
   per-database Connect/Disconnect/"Try to reconnect" (the database-level flag
@@ -293,9 +302,12 @@ that is missing, ordered by priority.
   for long loads, import from the storage directory, export of views or
   arbitrary queries from the dialog (the query tool still has its own CSV
   export), `ON_ERROR` row skipping.
-- **P3.3.** **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
-  session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
-  for a single database.
+- ~~**P3.3.** **Richer dashboards**~~ — **done** (server-level dashboard plus I/O,
+  WAL, checkpoint and session graphs); see "What this app already has" above.
+  Not covered: host CPU and memory graphs (PostgreSQL exposes neither through
+  SQL; pgAdmin needs the `system_stats` extension for them), `pg_stat_statements`
+  top queries, history beyond the 30-sample window, and the sessions / locks
+  tables at server level.
 
 ### P4 — Developer tools
 
