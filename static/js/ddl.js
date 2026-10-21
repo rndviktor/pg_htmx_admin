@@ -12,6 +12,29 @@
     // Modals are swapped into #modal-container and closed with this helper.
     window.closeDDL = closeDDL;
 
+    // Export Data: posts the dialog's form (data-action) and saves the streamed
+    // response as a file; a server error is shown in the dialog instead.
+    window.copyExport = function (form) {
+        const err = form.querySelector("[data-copy-error]");
+        if (err) err.textContent = "";
+        fetch(form.dataset.action, { method: "POST", body: new URLSearchParams(new FormData(form)) })
+            .then((r) => {
+                if (!r.ok) return r.text().then((t) => { throw new Error(t || "Export failed"); });
+                const m = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "");
+                return r.blob().then((blob) => ({ blob, name: m ? m[1] : "export" }));
+            })
+            .then(({ blob, name }) => {
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+            })
+            .catch((e) => { if (err) err.textContent = e.message; });
+    };
+
     function openModal(url) {
         fetch(url)
             .then((r) => { if (!r.ok) throw r; return r.text(); })

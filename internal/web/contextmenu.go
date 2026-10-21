@@ -200,6 +200,11 @@ func (n ctxNode) buildMenu() []ctxItem {
 		return ctxItem{Label: label, Attrs: []ctxAttr{
 			{"hx-get", "/api/backup/" + op + "/modal?" + q.Encode()}, {"hx-target", "#modal-container"}}}
 	}
+	copyData := func(label, dir string) ctxItem {
+		q := url.Values{"server_id": {server}, "db": {db}, "schema": {schema}, "table": {table}}
+		return ctxItem{Label: label, Attrs: []ctxAttr{
+			{"hx-get", "/api/copy/" + dir + "/modal?" + q.Encode()}, {"hx-target", "#modal-container"}}}
+	}
 	maint := func(label, op, extra string) ctxItem {
 		return act(label, "maint", "data-op", op, "data-extra", extra)
 	}
@@ -218,6 +223,9 @@ func (n ctxNode) buildMenu() []ctxItem {
 			maint("Reindex Schema", "reindex", "reindex_target=schema"))
 	case "table":
 		add(ctxItem{Label: "Backup / Restore", Sub: []ctxItem{backup("Backup...", "backup")}},
+			ctxItem{Label: "Import / Export", Sub: []ctxItem{
+				copyData("Import Data...", "import"), copyData("Export Data...", "export"),
+			}},
 			ctxItem{Label: "Maintenance", Sub: []ctxItem{
 				maint("Vacuum", "vacuum", "target=table"),
 				maint("Analyze", "analyze", "target=table"),

@@ -71,14 +71,20 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 type firstWriteHeaders struct {
 	w        http.ResponseWriter
 	filename string
-	started  bool
+	// contentType defaults to CSV when empty.
+	contentType string
+	started     bool
 }
 
 func (f *firstWriteHeaders) Write(p []byte) (int, error) {
 	if !f.started {
 		f.started = true
 		h := f.w.Header()
-		h.Set("Content-Type", "text/csv; charset=utf-8")
+		ct := f.contentType
+		if ct == "" {
+			ct = "text/csv; charset=utf-8"
+		}
+		h.Set("Content-Type", ct)
 		h.Set("Content-Disposition", `attachment; filename="`+f.filename+`"`)
 	}
 	return f.w.Write(p)

@@ -121,6 +121,15 @@ that is missing, ordered by priority.
   statements; the tab's Run applies them and Reset reloads the grid
   (`internal/web/privileges.go`, `templates/partials/priv_panel.html`,
   `/api/priv/{kind}/panel|preview`).
+- **Import / Export data**: "Import / Export" > "Import Data..." / "Export Data..."
+  on a table node opens a modal with the COPY options — format (CSV / text /
+  binary), header, delimiter, NULL string, quote, escape, encoding and a column
+  subset — and a live preview of the server-built `COPY` statement. Export
+  streams `COPY ... TO STDOUT` into a browser download; import streams the
+  uploaded file straight into `COPY ... FROM STDIN` (no temp file, 4 GB cap,
+  30 min limit) and reports the row count. Runs as the connection's role
+  (`internal/web/copy_data.go`, `templates/partials/import_export_modal.html`,
+  `/api/copy/...`, `copyExport` in `static/js/ddl.js`).
 - **Grant Wizard**: "Grant Wizard..." on a schema node opens a side panel to
   grant or revoke privileges for several roles (and PUBLIC) on many objects at
   once. Per group (tables, views, materialized views, sequences, functions,
@@ -279,7 +288,11 @@ that is missing, ordered by priority.
   **done**; see "What this app already has" above. Not covered: column-level
   privileges, default privileges (`ALTER DEFAULT PRIVILEGES`) and an "Edit
   privileges" link from the properties Privileges tab.
-- **P3.2.** **Import/Export data dialog** (bulk CSV load/unload).
+- ~~**P3.2.** **Import/Export data dialog** (bulk CSV load/unload)~~ —
+  **done**; see "What this app already has" above. Not covered: progress/cancel
+  for long loads, import from the storage directory, export of views or
+  arbitrary queries from the dialog (the query tool still has its own CSV
+  export), `ON_ERROR` row skipping.
 - **P3.3.** **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
   session graphs. `internal/web/monitoring.go` currently covers ~10 metrics
   for a single database.

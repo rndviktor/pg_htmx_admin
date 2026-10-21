@@ -1,0 +1,100 @@
+<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm"
+     onclick="if (event.target === this) closeDDL()">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl modal-panel w-full max-w-md p-6 max-h-screen overflow-y-auto">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <h3 class="text-lg font-bold text-white">{{ if eq .Dir "import" }}Import data{{ else }}Export data{{ end }}</h3>
+            <button onclick="closeDDL()" class="text-gray-400 hover:text-white">&#10005;</button>
+        </div>
+
+        {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 mb-3">{{ .Error }}</div>{{ end }}
+        {{ if .Message }}<div class="text-xs text-green-400 bg-green-900/40 border border-green-800 rounded p-2 mb-3">{{ .Message }}</div>{{ end }}
+
+        <form {{ if eq .Dir "import" }}hx-post="/api/copy/import" hx-encoding="multipart/form-data" hx-target="#modal-container" hx-swap="innerHTML" hx-disabled-elt="button[type='submit']"{{ else }}data-action="/api/copy/export" onsubmit="copyExport(this); return false"{{ end }} class="space-y-4">
+            <input type="hidden" name="server_id" value="{{ .ServerID }}">
+            <input type="hidden" name="db" value="{{ .DB }}">
+            <input type="hidden" name="schema" value="{{ .Schema }}">
+            <input type="hidden" name="table" value="{{ .Table }}">
+
+            <p class="text-sm text-gray-300"><span class="font-mono">{{ .Schema }}.{{ .Table }}</span></p>
+
+            {{ $fmt := index .Values "format" }}
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Format</label>
+                    <select name="format" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                        <option value="csv"{{ if eq $fmt "csv" }} selected{{ end }}>CSV</option>
+                        <option value="text"{{ if eq $fmt "text" }} selected{{ end }}>Text</option>
+                        <option value="binary"{{ if eq $fmt "binary" }} selected{{ end }}>Binary</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Encoding</label>
+                    <input type="text" name="encoding" value="{{ index .Values "encoding" }}" placeholder="default"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Delimiter</label>
+                    <input type="text" name="delimiter" value="{{ index .Values "delimiter" }}" placeholder="default (, or tab)"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">NULL string</label>
+                    <input type="text" name="null" value="{{ index .Values "null" }}" placeholder="default"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Quote (CSV)</label>
+                    <input type="text" name="quote" value="{{ index .Values "quote" }}" placeholder='default (")'
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Escape (CSV)</label>
+                    <input type="text" name="escape" value="{{ index .Values "escape" }}" placeholder="default"
+                           class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                </div>
+            </div>
+            <label class="flex items-center space-x-2 text-sm text-gray-300">
+                <input type="checkbox" name="header" {{ if eq (index .Values "header") "on" }}checked{{ end }} class="accent-blue-500">
+                <span>{{ if eq .Dir "import" }}First line is a header (skip it){{ else }}Write a header line{{ end }} (CSV)</span>
+            </label>
+
+            {{ if .Columns }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Columns</label>
+                <div class="grid grid-cols-2 gap-2">
+                    {{ range .Columns }}
+                    <label class="flex items-center space-x-2 text-sm text-gray-300">
+                        <input type="checkbox" name="col" value="{{ . }}" checked class="accent-blue-500"><span class="font-mono">{{ . }}</span>
+                    </label>
+                    {{ end }}
+                </div>
+            </div>
+            {{ end }}
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Command Preview</label>
+                <div id="ddl-preview" class="bg-gray-900 border border-gray-700 rounded p-2 min-h-[3rem] max-h-40 overflow-auto">
+                    <pre class="text-xs font-mono text-gray-300 whitespace-pre-wrap break-all">COPY ...</pre>
+                </div>
+            </div>
+
+            <div data-copy-error class="text-xs text-red-400"></div>
+
+            {{ if eq .Dir "import" }}
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">File</label>
+                <input type="file" name="file" class="w-full min-w-0 text-sm text-gray-300">
+            </div>
+            {{ end }}
+
+            <div class="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button type="button" onclick="closeDDL()"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Cancel</button>
+                <button type="button" hx-post="/api/copy/{{ .Dir }}/preview" hx-include="closest form" hx-encoding="application/x-www-form-urlencoded"
+                        hx-target="#ddl-preview" hx-swap="innerHTML"
+                        class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm">Update Command</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium">{{ if eq .Dir "import" }}Import{{ else }}Export{{ end }}</button>
+            </div>
+        </form>
+    </div>
+</div>
