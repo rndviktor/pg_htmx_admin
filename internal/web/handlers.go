@@ -94,6 +94,10 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/priv/{kind}/panel", s.handlePrivPanel)
 		r.Post("/api/priv/{kind}/preview", s.handlePrivPreview)
 
+		r.Get("/api/grant/panel", s.handleGrantPanel)
+		r.Get("/api/grant/objects", s.handleGrantObjects)
+		r.Post("/api/grant/preview", s.handleGrantPreview)
+
 		r.Get("/api/backup/{op}/modal", s.handleBackupModal)
 		r.Post("/api/backup/{op}/preview", s.handleBackupPreview)
 		r.Post("/api/backup/{op}/run", s.handleBackupRun)

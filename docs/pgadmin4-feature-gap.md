@@ -121,6 +121,15 @@ that is missing, ordered by priority.
   statements; the tab's Run applies them and Reset reloads the grid
   (`internal/web/privileges.go`, `templates/partials/priv_panel.html`,
   `/api/priv/{kind}/panel|preview`).
+- **Grant Wizard**: "Grant Wizard..." on a schema node opens a side panel to
+  grant or revoke privileges for several roles (and PUBLIC) on many objects at
+  once. Per group (tables, views, materialized views, sequences, functions,
+  procedures) it lists the schema's objects to tick individually, plus
+  "All ..." boxes that emit `ON ALL TABLES|SEQUENCES|FUNCTIONS|PROCEDURES IN
+  SCHEMA`; each group only receives the privileges valid for it. Options:
+  `WITH GRANT OPTION` and `CASCADE` (revoke). The server builds the SQL
+  (`internal/web/grant_wizard.go`, `templates/partials/grant_wizard_*.html`,
+  `/api/grant/panel|objects|preview`).
 - **DDL forms (Create / Drop / Alter)**: form-based generate-then-preview-then-run (now shown in the side panels above)
   for 15 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index,
@@ -266,12 +275,10 @@ that is missing, ordered by priority.
 
 ### P3 — Management depth
 
-- **P3.1.** **Grant Wizard** (grant/revoke privileges across many objects at
-  once). Role attributes, role membership and the per-object privilege editor
-  are done (see "What this app already has"); the multi-object wizard is
-  still missing. Also not covered: column-level privileges, default
-  privileges (`ALTER DEFAULT PRIVILEGES`) and an "Edit privileges" link from
-  the properties Privileges tab.
+- ~~**P3.1.** **Role & privilege management** plus a **Grant Wizard**~~ —
+  **done**; see "What this app already has" above. Not covered: column-level
+  privileges, default privileges (`ALTER DEFAULT PRIVILEGES`) and an "Edit
+  privileges" link from the properties Privileges tab.
 - **P3.2.** **Import/Export data dialog** (bulk CSV load/unload).
 - **P3.3.** **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
   session graphs. `internal/web/monitoring.go` currently covers ~10 metrics

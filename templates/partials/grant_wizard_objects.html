@@ -1,0 +1,22 @@
+{{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2">{{ .Error }}</div>{{ end }}
+{{ $form := printf "grant-form-%s" .PanelID }}
+{{ range .Groups }}
+{{ $kind := .Kind }}
+<details class="border border-gray-700 rounded p-2 mb-2">
+    <summary class="text-sm font-semibold text-white cursor-pointer">{{ .Label }} <span class="text-xs text-gray-500">({{ len .Objects }})</span></summary>
+    <div class="space-y-1 mt-2">
+        {{ if .AllKeyword }}
+        <label class="flex items-center space-x-2 text-sm text-gray-300">
+            <input type="checkbox" form="{{ $form }}" name="all_{{ $kind }}" class="accent-blue-500"><span>{{ .AllLabel }}</span>
+        </label>
+        {{ end }}
+        {{ range .Objects }}
+        <label class="flex items-center space-x-2 text-sm text-gray-300">
+            <input type="checkbox" form="{{ $form }}" name="obj_{{ $kind }}" value="{{ . }}" class="accent-blue-500"><span class="font-mono">{{ . }}</span>
+        </label>
+        {{ else }}
+        <p class="text-xs text-gray-500">None in this schema.</p>
+        {{ end }}
+    </div>
+</details>
+{{ end }}

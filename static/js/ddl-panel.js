@@ -71,6 +71,13 @@
         openPanelTab("/api/priv/" + kind + "/panel", qs, "Privileges " + name, nodeURL);
     };
 
+    // Grant Wizard for one schema (internal/web/grant_wizard.go).
+    window.openGrantWizard = function (nodeURL, schema) {
+        var qs = panelQuery(nodeURL, "");
+        qs.set("schema", schema);
+        openPanelTab("/api/grant/panel", qs, "Grant Wizard " + schema, nodeURL);
+    };
+
     // The panel's SQL arrives as <pre data-sql> in its output slot: copy it
     // into the tab's editor (errors arrive as [data-panel-error] and are only
     // shown).

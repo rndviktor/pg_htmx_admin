@@ -67,6 +67,7 @@ function initContextMenu() {
             d.folder ? ddlFolderID(node, d.folder === "create") : ""),
         maint: (d, ctx) => openMaintPanel(d.op, ctx.nodeUrl, Object.fromEntries(new URLSearchParams(d.extra || ""))),
         priv: (d, ctx) => openPrivPanel(d.kind, ctx.nodeUrl, d.name),
+        grantwiz: (d, ctx) => openGrantWizard(ctx.nodeUrl, d.name),
         "drop-script": (d, ctx) => openDropScriptTab(d.kind, ctx.nodeUrl, d.name),
         properties: (d) => openPropertiesTab(d.url, d.kind),
         script: (d) => openScriptTab(d.label, d.url),

@@ -190,6 +190,9 @@ func (n ctxNode) buildMenu() []ctxItem {
 		if _, ok := privKinds[kind]; ok {
 			items = append(items, act("Privileges...", "priv", "data-kind", kind, "data-name", name))
 		}
+		if kind == "schema" {
+			items = append(items, act("Grant Wizard...", "grantwiz", "data-name", name))
+		}
 	}
 
 	backup := func(label, op string) ctxItem {

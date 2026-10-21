@@ -32,6 +32,9 @@ func TestContextMenuRenders(t *testing.T) {
 			[]string{`data-kind="matview"`, `data-name="mv"`, `SELECT Script`}, []string{`Maintenance`}},
 		{"kind=table&table_url=" + tbl + "&name=orders",
 			[]string{`>Privileges...<`, `data-act="priv"`}, nil},
+		{"kind=schema&has_children=1&table_url=/api/servers/3/databases/shop/schemas/public/children",
+			[]string{`>Grant Wizard...<`, `data-act="grantwiz"`, `data-name="public"`}, nil},
+		{"kind=table&table_url=" + tbl + "&name=orders", nil, []string{`Grant Wizard`}},
 		{"kind=rule&props_url=/api/servers/3/databases/shop/schemas/public/tables/orders/rules/r/properties",
 			nil, []string{`Privileges...`}},
 	}
