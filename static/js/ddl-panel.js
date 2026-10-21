@@ -64,6 +64,13 @@
         openPanelTab("/api/maint/" + op + "/panel", qs, op.charAt(0).toUpperCase() + op.slice(1), nodeURL);
     };
 
+    // Privilege editor for one object (internal/web/privileges.go).
+    window.openPrivPanel = function (kind, nodeURL, name) {
+        var qs = panelQuery(nodeURL, "");
+        qs.set("name", name);
+        openPanelTab("/api/priv/" + kind + "/panel", qs, "Privileges " + name, nodeURL);
+    };
+
     // The panel's SQL arrives as <pre data-sql> in its output slot: copy it
     // into the tab's editor (errors arrive as [data-panel-error] and are only
     // shown).
@@ -91,6 +98,6 @@
         var el = tab.querySelector(".ddl-panel");
         if (!el || el.dataset.action === "maint") return;
         if (el.dataset.folder) htmx.trigger(document.body, "ddl-refresh", { value: el.dataset.folder });
-        if (el.dataset.action === "alter") htmx.trigger(el.querySelector("[data-panel-reset]"), "click");
+        if (el.dataset.action === "alter" || el.dataset.action === "priv") htmx.trigger(el.querySelector("[data-panel-reset]"), "click");
     };
 })();

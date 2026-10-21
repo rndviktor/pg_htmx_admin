@@ -111,6 +111,16 @@ that is missing, ordered by priority.
   and the right-click menu and EXPLAIN view are rendered by Go templates
   (`internal/web/contextmenu.go`, `explain_plan.go`); Chart.js loads only when
   the Monitoring dashboard first draws a chart.
+- **Privilege editor**: "Privileges..." in the tree context menu of databases,
+  tablespaces, schemas, tables, views, materialized views, sequences,
+  functions and procedures opens a side panel with the object's ACL as a
+  grantee x privilege grid (implicit owner/PUBLIC privileges included via
+  `acldefault`), a "with grant option" box per privilege and an "Add grantee"
+  row. The server diffs the grid against the state it was loaded with into
+  `REVOKE` / `REVOKE GRANT OPTION FOR` / `GRANT [WITH GRANT OPTION]`
+  statements; the tab's Run applies them and Reset reloads the grid
+  (`internal/web/privileges.go`, `templates/partials/priv_panel.html`,
+  `/api/priv/{kind}/panel|preview`).
 - **DDL forms (Create / Drop / Alter)**: form-based generate-then-preview-then-run (now shown in the side panels above)
   for 15 object kinds — database, role, tablespace, schema, sequence, view,
   materialized view, function, procedure, extension, publication, index,
@@ -256,11 +266,12 @@ that is missing, ordered by priority.
 
 ### P3 — Management depth
 
-- **P3.1.** **Privilege management** plus a **Grant Wizard** (grant/revoke
-  privileges across objects). Role attributes and role membership are done
-  (see "What this app already has"), but there is still no privilege-editing
-  UI (properties only *display* ACLs): a per-object privilege editor and a
-  schema-level Grant Wizard remain.
+- **P3.1.** **Grant Wizard** (grant/revoke privileges across many objects at
+  once). Role attributes, role membership and the per-object privilege editor
+  are done (see "What this app already has"); the multi-object wizard is
+  still missing. Also not covered: column-level privileges, default
+  privileges (`ALTER DEFAULT PRIVILEGES`) and an "Edit privileges" link from
+  the properties Privileges tab.
 - **P3.2.** **Import/Export data dialog** (bulk CSV load/unload).
 - **P3.3.** **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
   session graphs. `internal/web/monitoring.go` currently covers ~10 metrics

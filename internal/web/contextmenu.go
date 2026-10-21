@@ -187,6 +187,9 @@ func (n ctxNode) buildMenu() []ctxItem {
 		drop.Danger = true
 		add(drop, act("DROP Script", "drop-script", "data-kind", kind, "data-name", name))
 		add(act("Alter "+label, "panel", "data-action", "alter", "data-kind", kind, "data-name", name, "data-folder", "node"))
+		if _, ok := privKinds[kind]; ok {
+			items = append(items, act("Privileges...", "priv", "data-kind", kind, "data-name", name))
+		}
 	}
 
 	backup := func(label, op string) ctxItem {

@@ -1,0 +1,61 @@
+<div id="ddl-panel-{{ .PanelID }}" class="ddl-panel" data-action="{{ .Action }}" data-folder="{{ .FolderID }}" data-db="{{ .ConnDB }}">
+    <div class="flex justify-between items-center px-4 py-2 border-b border-gray-700">
+        <h3 class="text-sm font-bold text-white">{{ .Title }}</h3>
+        <div class="flex items-center gap-2">
+            <button type="button" data-panel-reset hx-get="{{ .ResetURL }}" hx-target="#ddl-panel-{{ .PanelID }}" hx-swap="outerHTML" class="px-2 py-1 text-xs text-gray-300 hover:text-white border border-gray-600 rounded" title="Reload the privileges from the database (use after running the SQL)">Reset</button>
+            <button type="button" data-panel-toggle class="px-2 py-1 text-sm text-gray-300 hover:text-white border border-gray-600 rounded" title="Hide this panel">&lt;&lt;</button>
+        </div>
+    </div>
+    <div id="ddl-out-{{ .PanelID }}" class="ddl-out"></div>
+    {{ if .Error }}<div class="text-xs text-red-400 bg-red-900/40 border border-red-800 rounded p-2 m-3">{{ .Error }}</div>{{ end }}
+
+    <form hx-post="{{ .PreviewURL }}" hx-trigger="load, input changed delay:400ms, change, panel-changed" hx-target="#ddl-out-{{ .PanelID }}" hx-sync="this:replace" class="space-y-4 p-4" onsubmit="return false">
+        <input type="hidden" name="server_id" value="{{ .ServerID }}">
+        <input type="hidden" name="db" value="{{ .DB }}">
+        <input type="hidden" name="schema" value="{{ .Schema }}">
+        <input type="hidden" name="name" value="{{ .Name }}">
+        <input type="hidden" name="rows" value="{{ len .Rows }}">
+
+        <p class="text-sm text-gray-300">
+            <span class="font-mono">{{ if .Schema }}{{ .Schema }}.{{ end }}{{ .Name }}</span>
+            <span class="text-xs text-gray-500">(G = with grant option)</span>
+        </p>
+
+        {{ range .Rows }}
+        <div class="border border-gray-700 rounded p-2 space-y-2">
+            <input type="hidden" name="grantee_{{ .Index }}" value="{{ .Grantee }}">
+            <input type="hidden" name="orig_{{ .Index }}" value="{{ .Orig }}">
+            <div class="text-sm font-mono text-white">{{ .Grantee }}</div>
+            <div class="grid grid-cols-2 gap-2">
+                {{ $i := .Index }}
+                {{ range .Cells }}
+                <div class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="priv_{{ $i }}" value="{{ .Priv }}" {{ if .Has }}checked{{ end }} class="accent-blue-500">
+                    <span>{{ .Priv }}</span>
+                    <input type="checkbox" name="opt_{{ $i }}" value="{{ .Priv }}" {{ if .Opt }}checked{{ end }} title="WITH GRANT OPTION" class="accent-blue-500">
+                    <span class="text-xs text-gray-500">G</span>
+                </div>
+                {{ end }}
+            </div>
+        </div>
+        {{ end }}
+
+        <div class="border border-gray-700 rounded p-2 space-y-2">
+            <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Add grantee</label>
+            <select name="newgrantee" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm">
+                <option value="">(none)</option>
+                {{ range .Grantees }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+            </select>
+            <div class="grid grid-cols-2 gap-2">
+                {{ range .NewCells }}
+                <div class="flex items-center space-x-2 text-sm text-gray-300">
+                    <input type="checkbox" name="priv_new" value="{{ .Priv }}" class="accent-blue-500">
+                    <span>{{ .Priv }}</span>
+                    <input type="checkbox" name="opt_new" value="{{ .Priv }}" title="WITH GRANT OPTION" class="accent-blue-500">
+                    <span class="text-xs text-gray-500">G</span>
+                </div>
+                {{ end }}
+            </div>
+        </div>
+    </form>
+</div>

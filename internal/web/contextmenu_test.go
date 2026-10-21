@@ -30,6 +30,10 @@ func TestContextMenuRenders(t *testing.T) {
 			[]string{`Create Index`, `data-folder="create"`}, nil},
 		{"kind=materialized-view&props_url=/api/servers/3/databases/shop/schemas/public/matviews/mv/properties",
 			[]string{`data-kind="matview"`, `data-name="mv"`, `SELECT Script`}, []string{`Maintenance`}},
+		{"kind=table&table_url=" + tbl + "&name=orders",
+			[]string{`>Privileges...<`, `data-act="priv"`}, nil},
+		{"kind=rule&props_url=/api/servers/3/databases/shop/schemas/public/tables/orders/rules/r/properties",
+			nil, []string{`Privileges...`}},
 	}
 	for _, c := range cases {
 		w := httptest.NewRecorder()
