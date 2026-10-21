@@ -116,7 +116,11 @@ that is missing, ordered by priority.
   materialized view, function, procedure, extension, publication, index,
   trigger, rule and RLS policy — plus a Create Table dialog with columns
   (name, type, nullability, default, primary key / unique keys) and a CHECK
-  constraint. Pre-filled `ALTER` dialogs now cover all 15 kinds: rename/owner
+  constraint. Role create/alter include **membership**: `IN ROLE` / `ROLE` /
+  `ADMIN` on create, and "Member of" / "Members" multi-selects on alter that
+  are diffed against `pg_auth_members` into `GRANT` / `REVOKE` statements
+  (`buildCreateRoleForm`, `buildAlterRoleForm`, `roleMembershipStatements` in
+  `internal/web/ddl.go`). Pre-filled `ALTER` dialogs now cover all 15 kinds: rename/owner
   for database, role, tablespace and publication; rename/owner/set-schema for
   table, view, materialized view, function, procedure and sequence (plus
   increment/min/max/cache/restart/cycle for sequences); update-version/
@@ -252,11 +256,11 @@ that is missing, ordered by priority.
 
 ### P3 — Management depth
 
-- **P3.1.** **Role & privilege management** plus a **Grant Wizard** (grant/revoke
-  privileges across objects). Roles can be created, altered (login, superuser,
-  createdb/createrole, inherit, replication, connlimit, valid-until,
-  password) and dropped, but there is no role-membership editor and no
-  privilege-editing UI (properties only *display* ACLs).
+- **P3.1.** **Privilege management** plus a **Grant Wizard** (grant/revoke
+  privileges across objects). Role attributes and role membership are done
+  (see "What this app already has"), but there is still no privilege-editing
+  UI (properties only *display* ACLs): a per-object privilege editor and a
+  schema-level Grant Wizard remain.
 - **P3.2.** **Import/Export data dialog** (bulk CSV load/unload).
 - **P3.3.** **Richer dashboards** — server-level statistics plus I/O, CPU, memory and
   session graphs. `internal/web/monitoring.go` currently covers ~10 metrics

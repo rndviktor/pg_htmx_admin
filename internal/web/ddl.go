@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -76,7 +77,8 @@ var ddlKinds = map[string]ddlKind{
 		BuildAlter: buildAlterDatabase},
 	"role": {Label: "Role", Scope: ddlScopeServer,
 		BuildCreate: buildCreateRole, BuildDrop: buildDropRole,
-		BuildAlter: buildAlterRole},
+		BuildAlter:      buildAlterRole,
+		BuildCreateForm: buildCreateRoleForm, BuildAlterForm: buildAlterRoleForm},
 	"tablespace": {Label: "Tablespace", Scope: ddlScopeServer,
 		BuildCreate: buildCreateTablespace, BuildDrop: buildDropTablespace,
 		BuildAlter: buildAlterTablespace},
@@ -465,6 +467,13 @@ func buildCreateRole(v map[string]string) (string, error) {
 	}
 	if validUntil := strings.TrimSpace(v["validuntil"]); validUntil != "" {
 		parts = append(parts, "    VALID UNTIL "+quoteLiteral(validUntil))
+	}
+	for _, m := range []struct{ field, clause string }{
+		{"inrole", "IN ROLE "}, {"members", "ROLE "}, {"admins", "ADMIN "},
+	} {
+		if list := rolesClause(splitList(v[m.field])); list != "" {
+			parts = append(parts, "    "+m.clause+list)
+		}
 	}
 
 	var sb strings.Builder
@@ -1529,13 +1538,75 @@ func buildAlterRole(v map[string]string) (string, error) {
 	if len(acts) > 0 {
 		stmts = append(stmts, "ALTER ROLE "+quoteIdent(name)+" WITH "+strings.Join(acts, " "))
 	}
+	stmts = append(stmts, roleMembershipStatements(name, v)...)
 	if nn := strings.TrimSpace(v["newname"]); nn != "" {
 		stmts = append(stmts, "ALTER ROLE "+quoteIdent(name)+" RENAME TO "+quoteIdent(nn))
 	}
 	if len(stmts) == 0 {
-		return "", formErr("No changes requested. Set an attribute or a new name.")
+		return "", formErr("No changes requested. Set an attribute, a membership or a new name.")
 	}
 	return joinStatements(stmts), nil
+}
+
+// roleFormValues flattens the posted role form like formValues but keeps every
+// selected option of the membership multi-selects as a comma-joined list.
+func roleFormValues(form url.Values) map[string]string {
+	v := formValues(form)
+	for _, k := range []string{"inrole", "members", "admins", "memberof"} {
+		v[k] = strings.Join(form[k], ",")
+	}
+	return v
+}
+
+func buildCreateRoleForm(form url.Values) (string, error) {
+	return buildCreateRole(roleFormValues(form))
+}
+
+func buildAlterRoleForm(form url.Values) (string, error) {
+	return buildAlterRole(roleFormValues(form))
+}
+
+// listDiff returns the entries added to and removed from orig by cur.
+func listDiff(cur, orig []string) (added, removed []string) {
+	for _, c := range cur {
+		if !slices.Contains(orig, c) {
+			added = append(added, c)
+		}
+	}
+	for _, o := range orig {
+		if !slices.Contains(cur, o) {
+			removed = append(removed, o)
+		}
+	}
+	return added, removed
+}
+
+// roleMembershipStatements diffs the "Member of" (memberof) and "Members"
+// (members) selections against the originals loaded by alterPrefill and emits
+// the GRANT / REVOKE statements. Forms without the hidden *_orig fields (so
+// no known baseline) produce nothing.
+func roleMembershipStatements(name string, v map[string]string) []string {
+	var stmts []string
+	role := quoteIdent(name)
+	if _, ok := v["memberof_orig"]; ok {
+		add, drop := listDiff(splitList(v["memberof"]), splitList(v["memberof_orig"]))
+		for _, g := range add {
+			stmts = append(stmts, "GRANT "+quoteIdent(g)+" TO "+role)
+		}
+		for _, g := range drop {
+			stmts = append(stmts, "REVOKE "+quoteIdent(g)+" FROM "+role)
+		}
+	}
+	if _, ok := v["members_orig"]; ok {
+		add, drop := listDiff(splitList(v["members"]), splitList(v["members_orig"]))
+		for _, m := range add {
+			stmts = append(stmts, "GRANT "+role+" TO "+quoteIdent(m))
+		}
+		for _, m := range drop {
+			stmts = append(stmts, "REVOKE "+role+" FROM "+quoteIdent(m))
+		}
+	}
+	return stmts
 }
 
 // alterOwnerSchemaRename emits the OWNER TO / SET SCHEMA / RENAME TO
@@ -2489,8 +2560,29 @@ FROM pg_roles WHERE rolname = $1`, name).
 		v["replication"] = tri(repl)
 		v["connlimit"] = strconv.Itoa(connlimit)
 		v["validuntil"] = validuntil
+		memberOf, members, err := loadRoleMembership(ctx, pool, name)
+		if err != nil {
+			log.Printf("alter prefill role membership %q: %v", name, err)
+			return v
+		}
+		v["memberof"], v["memberof_orig"] = memberOf, memberOf
+		v["members"], v["members_orig"] = members, members
 	}
 	return v
+}
+
+// loadRoleMembership returns the comma-joined roles the given role is a member
+// of and the roles that are members of it.
+func loadRoleMembership(ctx context.Context, pool *pgxpool.Pool, name string) (memberOf, members string, err error) {
+	err = pool.QueryRow(ctx, `SELECT
+    COALESCE((SELECT string_agg(DISTINCT g.rolname, ',' ORDER BY g.rolname)
+        FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid
+        JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = $1), ''),
+    COALESCE((SELECT string_agg(DISTINCT u.rolname, ',' ORDER BY u.rolname)
+        FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid
+        JOIN pg_roles u ON u.oid = m.member WHERE g.rolname = $1), '')`, name).
+		Scan(&memberOf, &members)
+	return memberOf, members, err
 }
 
 // tableExistingColumns fetches a table's current columns for a freshly
